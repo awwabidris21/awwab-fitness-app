@@ -82,6 +82,7 @@ window.startClient = function (ctx) {
   /* ---------- shared pieces ---------- */
   const DAY_TABS = ["home", "training", "nutrition", "meals"];
   let checkinOpen = false;
+  let pwMsg = "", pwOk = false;
 
   function header(title, sub, back) {
     const isToday = date === realToday;
@@ -277,6 +278,11 @@ window.startClient = function (ctx) {
     h += `<h2>Message your coach</h2><div class="card"><label class="field" for="msg">Anything I should know about today? (hunger, sore, travel, questions)</label>
       <textarea id="msg" data-f="msg" placeholder="Type here. Your coach sees it.">${esc(d.msg || "")}</textarea></div>`;
     h += `<h2>Plan notes</h2>` + (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
+    h += `<h2>Account</h2><div class="card"><h3>Change password</h3>
+      <label class="field" for="pw1">New password (8 or more characters)</label><input id="pw1" type="password" autocomplete="new-password">
+      <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
+      ${pwMsg ? `<div class="${pwOk ? "muted" : "err"} small" style="margin-top:8px">${esc(pwMsg)}</div>` : ""}
+      <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="logout">Log out</button></div>`;
     return h;
   }
@@ -375,6 +381,7 @@ window.startClient = function (ctx) {
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) { tab = t.dataset.tab || t.dataset.go; render(); window.scrollTo(0, 0); return; }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
+    if (t.dataset.act === "setpw") { changePassword(); return; }
     const d = dayRec(date);
     switch (t.dataset.act) {
       case "prev": { const x = toDate(date); x.setDate(x.getDate() - 1); date = iso(x); break; }
@@ -389,6 +396,19 @@ window.startClient = function (ctx) {
     }
     const y = window.scrollY; render(); window.scrollTo(0, y);
   });
+
+  async function changePassword() {
+    const a = document.getElementById("pw1").value, b = document.getElementById("pw2").value;
+    pwOk = false;
+    if (a.length < 8) pwMsg = "Use at least 8 characters.";
+    else if (a !== b) pwMsg = "The two passwords don't match.";
+    else {
+      const { error } = await ctx.sb.auth.updateUser({ password: a });
+      if (error) pwMsg = error.message;
+      else { pwOk = true; pwMsg = "Password updated. Use it next time you log in."; }
+    }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
 
   document.addEventListener("keydown", e => {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches('[data-act="meal"]')) { e.preventDefault(); e.target.click(); }
