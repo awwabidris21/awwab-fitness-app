@@ -8,8 +8,15 @@
     view.innerHTML = `<div class="login"><h1>Can't connect</h1><p class="muted">The app couldn't load. Check your internet connection and refresh.</p></div>`;
     return;
   }
-  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  const logout = async () => { await sb.auth.signOut(); location.reload(); };
+  // Sessions are saved on the device and refreshed automatically, so people stay logged in.
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  const logout = async () => { await sb.auth.signOut(); location.href = location.pathname; };
+  const home = location.origin + location.pathname;
+
+  // Password-reset emails link back here with a token in the URL.
+  const hash = location.hash || "";
+  const isRecovery = /type=recovery/.test(hash);
+  const linkExpired = /error_code=otp_expired|error=access_denied/.test(hash);
 
   function message(title, text) {
     tabs.style.display = "none";
@@ -18,17 +25,57 @@
     document.getElementById("lo").onclick = logout;
   }
 
-  function showLogin(err) {
+  function showLogin(err, info) {
     tabs.style.display = "none";
     view.innerHTML = `<div class="login"><div class="eyebrow">Awwab Fitness</div><h1>Log in</h1>
-      <form class="card" id="f"><label class="field" for="em">Email</label><input id="em" type="text" inputmode="email" autocomplete="username" autocapitalize="none" required>
-      <label class="field" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
-      ${err ? `<div class="err">${esc(err)}</div>` : ""}<button class="btn" style="width:100%" type="submit">Log in</button></form>
-      <p class="muted small">Your coach gives you your login.</p></div>`;
+      <form class="card" id="f" method="post" action="#"><label class="field" for="em">Email</label>
+      <input id="em" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label class="field" for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required>
+      ${err ? `<div class="err">${esc(err)}</div>` : ""}${info ? `<div class="muted small" style="margin-bottom:10px">${esc(info)}</div>` : ""}
+      <button class="btn" style="width:100%" type="submit">Log in</button>
+      <div style="text-align:center;margin-top:14px"><a href="#" id="fg" class="muted small">Forgot password?</a></div></form>
+      <p class="muted small">You'll stay logged in on this device. Tap "Save password" if your phone offers it.</p></div>`;
+    document.getElementById("fg").onclick = e => { e.preventDefault(); showForgot(); };
     document.getElementById("f").onsubmit = async e => {
       e.preventDefault();
       const { error } = await sb.auth.signInWithPassword({ email: document.getElementById("em").value.trim(), password: document.getElementById("pw").value });
       if (error) showLogin(error.message === "Invalid login credentials" ? "Wrong email or password." : error.message); else boot();
+    };
+  }
+
+  function showForgot(msg, ok) {
+    tabs.style.display = "none";
+    view.innerHTML = `<div class="login"><div class="eyebrow">Awwab Fitness</div><h1>Reset password</h1>
+      <p class="muted">Enter your email and we'll send you a link to choose a new password.</p>
+      <form class="card" id="f"><label class="field" for="em">Email</label><input id="em" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" required>
+      ${msg ? `<div class="${ok ? "muted small" : "err"}" style="margin-bottom:10px">${esc(msg)}</div>` : ""}
+      <button class="btn" style="width:100%" type="submit">Send reset link</button>
+      <div style="text-align:center;margin-top:14px"><a href="#" id="bk" class="muted small">Back to log in</a></div></form></div>`;
+    document.getElementById("bk").onclick = e => { e.preventDefault(); showLogin(); };
+    document.getElementById("f").onsubmit = async e => {
+      e.preventDefault();
+      const email = document.getElementById("em").value.trim();
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: home });
+      if (error) showForgot(error.message.includes("rate") ? "Too many requests. Wait a few minutes and try again." : "We couldn't send that email. Check the address or ask your coach.");
+      else showForgot("If that email has an account, a reset link is on its way. Check your inbox and spam.", true);
+    };
+  }
+
+  function showNewPassword(msg) {
+    tabs.style.display = "none";
+    view.innerHTML = `<div class="login"><div class="eyebrow">Awwab Fitness</div><h1>Choose a new password</h1>
+      <form class="card" id="f"><label class="field" for="p1">New password (8 or more characters)</label><input id="p1" name="password" type="password" autocomplete="new-password" required>
+      <label class="field" for="p2">Type it again</label><input id="p2" type="password" autocomplete="new-password" required>
+      ${msg ? `<div class="err">${esc(msg)}</div>` : ""}<button class="btn" style="width:100%" type="submit">Save password</button></form></div>`;
+    document.getElementById("f").onsubmit = async e => {
+      e.preventDefault();
+      const a = document.getElementById("p1").value, b = document.getElementById("p2").value;
+      if (a.length < 8) return showNewPassword("Use at least 8 characters.");
+      if (a !== b) return showNewPassword("The two passwords don't match.");
+      const { error } = await sb.auth.updateUser({ password: a });
+      if (error) return showNewPassword(error.message);
+      history.replaceState(null, "", location.pathname);
+      boot();
     };
   }
 
@@ -58,5 +105,7 @@
     startClient(ctx);
   }
 
-  boot();
+  if (isRecovery) showNewPassword();
+  else if (linkExpired) { history.replaceState(null, "", location.pathname); showForgot("That reset link expired. Request a new one."); }
+  else boot();
 })();
