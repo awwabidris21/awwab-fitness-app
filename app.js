@@ -27,7 +27,7 @@ window.startClient = function (ctx) {
       clearTimeout(timer); timer = setTimeout(flush, 5000);
     }
   }
-  const save = () => { dirty.add(date); setStatus("Saving..."); clearTimeout(timer); timer = setTimeout(flush, 600); };
+  const save = () => { if (ctx.readOnly) return; dirty.add(date); setStatus("Saving..."); clearTimeout(timer); timer = setTimeout(flush, 600); };
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -278,6 +278,7 @@ window.startClient = function (ctx) {
     h += `<h2>Message your coach</h2><div class="card"><label class="field" for="msg">Anything I should know about today? (hunger, sore, travel, questions)</label>
       <textarea id="msg" data-f="msg" placeholder="Type here. Your coach sees it.">${esc(d.msg || "")}</textarea></div>`;
     h += `<h2>Plan notes</h2>` + (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
+    if (ctx.readOnly) return h + `<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="logout">Back to coach view</button></div>`;
     h += `<h2>Account</h2><div class="card"><h3>Change password</h3>
       <label class="field" for="pw1">New password (8 or more characters)</label><input id="pw1" type="password" autocomplete="new-password">
       <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
@@ -381,6 +382,7 @@ window.startClient = function (ctx) {
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) { tab = t.dataset.tab || t.dataset.go; render(); window.scrollTo(0, 0); return; }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
+    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     const d = dayRec(date);
     switch (t.dataset.act) {
@@ -415,6 +417,7 @@ window.startClient = function (ctx) {
   });
 
   document.addEventListener("change", e => {
+    if (ctx.readOnly) return;
     const t = e.target;
     const d = dayRec(date);
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }

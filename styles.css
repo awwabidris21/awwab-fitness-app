@@ -135,3 +135,8 @@ button.card { display: block; cursor: pointer; }
 .tile2 .l { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); }
 .tile2 .v { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 28px; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .tile2 .s { font-size: 12px; color: var(--slate); }
+
+.previewbar { position: fixed; top: 0; left: 0; right: 0; z-index: 20; background: var(--amber); color: #fff; font-size: 13px; padding: 8px 14px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.previewbar a { color: #fff; font-weight: 700; text-decoration: underline; white-space: nowrap; }
+body.preview #view { padding-top: 70px; }
+body.preview #sync { display: none; }

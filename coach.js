@@ -77,8 +77,8 @@ window.startCoach = function (ctx) {
           ${chip("Weigh-in" + (d.weight ? " " + d.weight : ""), !!d.weight)}${chip("Water " + (d.water || 0), (d.water || 0) >= ((cfg.targets || {}).water || 120))}
           ${chip("Steps" + (d.steps ? " " + d.steps : ""), !!d.steps)}${chip("Check-in", !!scoreOf(d))}${ex.wk && ex.wk !== "Rest" ? chip(ex.wk + " " + ex.done + "/" + ex.total, ex.total > 0 && ex.done === ex.total) : ""}</div>`;
       }
-      return `<div class="card" style="margin-top:12px"><div class="rowline"><h3 style="color:var(--ink)">${esc(c.name || "Client")}</h3>
-        <button class="btn" data-c="open" data-id="${esc(c.id)}">Open</button></div>
+      return `<div class="card" style="margin-top:12px"><h3 style="color:var(--ink)">${esc(c.name || "Client")}</h3>
+        <div class="btns" style="margin:8px 0 10px"><a class="btn ghost" style="text-decoration:none;display:inline-flex;align-items:center" href="?preview=${encodeURIComponent(c.id)}">See app</a><button class="btn" data-c="open" data-id="${esc(c.id)}">Open</button></div>
         <div class="muted small">${lw ? "Last weigh-in " + esc(lw.w) + " lbs (" + short(lw.k) + ")" : "No weigh-ins yet"}</div>${status}
         ${f.map(x => `<span class="flag">${esc(x)}</span>`).join("")}</div>`;
     }).join("");
@@ -95,6 +95,8 @@ window.startCoach = function (ctx) {
         <div class="muted small" style="margin-bottom:10px">Starts them on Abu Bakr's plan as a template. You can change every number after.</div>
         <button class="btn" data-c="template">Set up from template</button></div>`;
     }
+
+    h += `<div class="btns"><a class="btn" style="text-decoration:none;display:inline-flex;align-items:center" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a></div>`;
 
     // recent days
     const ks = Object.keys(logs[selected] || {}).sort().reverse().slice(0, 14);

@@ -79,6 +79,19 @@
     };
   }
 
+  async function preview(id, ctx) {
+    const [who, cfg, logs] = await Promise.all([
+      sb.from("profiles").select("name").eq("id", id).maybeSingle(),
+      sb.from("client_config").select("config").eq("user_id", id).maybeSingle(),
+      sb.from("day_logs").select("log_date,day,lifts").eq("user_id", id)
+    ]);
+    if (!cfg.data || !cfg.data.config || !cfg.data.config.meals) return message("No plan yet", "This client doesn't have a plan set up yet.");
+    document.body.classList.add("preview");
+    document.body.insertAdjacentHTML("afterbegin", `<div class="previewbar"><span>Preview: ${esc((who.data && who.data.name) || "client")} (read only)</span><a href="${esc(location.pathname)}">Back to coach view</a></div>`);
+    tabs.style.display = "";
+    startClient({ sb, userId: id, readOnly: true, config: cfg.data.config, logs: logs.data || [], logout: () => { location.href = location.pathname; } });
+  }
+
   async function boot() {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) return showLogin();
@@ -92,7 +105,11 @@
       prof = { id: user.id, role: "client", name: (user.email || "").split("@")[0] };
     }
     const ctx = { sb, userId: user.id, logout };
-    if (prof.role === "coach") { tabs.style.display = "none"; return startCoach(ctx); }
+    if (prof.role === "coach") {
+      const pv = new URLSearchParams(location.search).get("preview");
+      if (pv) return preview(pv, ctx);
+      tabs.style.display = "none"; return startCoach(ctx);
+    }
 
     const [cfg, logs] = await Promise.all([
       sb.from("client_config").select("config").eq("user_id", user.id).maybeSingle(),
