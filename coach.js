@@ -77,6 +77,7 @@ window.startCoach = function (ctx) {
     const bits = [];
     if (d.weight) bits.push("weight " + d.weight);
     if (d.steps) bits.push(d.steps.toLocaleString() + " steps");
+    if (d.sleepHrs) bits.push(d.sleepHrs + " h sleep");
     if (d.water) bits.push(d.water + " oz water");
     if ((cfg.meals || []).length) bits.push("meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length);
     if ((d.foods || []).length) { const fc = d.foods.reduce((a, x) => a + (+x.cal || 0), 0); bits.push((cfg.meals || []).length ? d.foods.length + " extra food" + (d.foods.length > 1 ? "s" : "") + " logged (" + fc + " cal)" : d.foods.length + " food" + (d.foods.length > 1 ? "s" : "") + " logged, " + fc + " of " + ((cfg.targets || {}).calories || "?") + " cal"); }
@@ -96,6 +97,7 @@ window.startCoach = function (ctx) {
       if (sc.e && sc.e <= 2) q.push(`Energy was a ${sc.e}. Is that a sleep problem, a food problem, or just a hard week?`);
       if (sc.h && sc.h >= 4) q.push(`Hunger was a ${sc.h}. Which meal leaves you hungriest?`);
     }
+    if (d.sleepHrs && d.sleepHrs < 6.5) q.push(`You logged ${d.sleepHrs} hours of sleep. What's keeping you up, and can we move your bedtime earlier?`);
     if (!d.steps || d.steps < 7000) q.push(d.steps ? `Steps were ${d.steps.toLocaleString()}. What's getting in the way of 10,000?` : "Steps weren't logged. How many did you get?");
     if (!d.weight) q.push("Did you weigh in yesterday?");
     const ws = weightSeries(id);
@@ -126,12 +128,13 @@ window.startCoach = function (ctx) {
   function weekly(id) {
     const cfg = configs[id] || {};
     const days = dateList(yesterday, 7);
-    const N = [], I = [], Sl = [], steps = [], water = [];
+    const N = [], I = [], Sl = [], steps = [], water = [], sleepH = [];
     let ci = 0, mealSum = 0, mealDen = 0, wkSched = 0, wkDone = 0, off = 0;
     days.forEach(k => {
       const r = rec(id, k), d = r.day, s = scoreOf(d);
       if (s) { ci++; N.push(s.n); I.push(s.i); Sl.push(s.s); }
       if (d.steps) steps.push(d.steps);
+      if (d.sleepHrs) sleepH.push(d.sleepHrs);
       if (d.water) water.push(d.water);
       mealDen += (cfg.meals || []).length; mealSum += (d.meals || []).filter(Boolean).length;
       const e = exDone(cfg, k, r); if (e.wk && e.wk !== "Rest" && e.total) { wkSched++; if (e.done === e.total) wkDone++; }
@@ -152,7 +155,7 @@ window.startCoach = function (ctx) {
     const stats = [
       ["Check-ins", ci + "/7"], mealDen ? ["Meals eaten", mealPct + "%"] : ["Days food logged", foodDays + "/7"],
       ["Nutrition", N.length ? r1(avg(N)) : "-"], ["Intensity", I.length ? r1(avg(I)) : "-"], ["Sleep", Sl.length ? r1(avg(Sl)) : "-"],
-      ["Steps (avg)", steps.length ? Math.round(avg(steps)).toLocaleString() : "-"], ["Water (avg)", water.length ? Math.round(avg(water)) + " oz" : "-"],
+      ["Sleep hours (avg)", sleepH.length ? r1(avg(sleepH)) + " h" : "-"], ["Steps (avg)", steps.length ? Math.round(avg(steps)).toLocaleString() : "-"], ["Water (avg)", water.length ? Math.round(avg(water)) + " oz" : "-"],
       ["Workouts", wkSched ? wkDone + "/" + wkSched : "-"], ["Weight avg change", wChange == null ? "-" : (wChange > 0 ? "+" : "") + wChange + " lb"], ["New bests", String(prs.length)]
     ];
     const wins = [], focus = [];
@@ -233,7 +236,7 @@ window.startCoach = function (ctx) {
         const chip = (label, done) => `<span class="chip ${done ? "done" : ""}">${label}</span>`;
         status = `<div class="tasks">${cfg.meals.length ? chip("Meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length, (d.meals || []).filter(Boolean).length === cfg.meals.length) : chip("Food " + (d.foods || []).reduce((a, x) => a + (+x.cal || 0), 0) + " cal", (d.foods || []).length > 0)}
           ${chip("Weigh-in" + (d.weight ? " " + d.weight : ""), !!d.weight)}${chip("Water " + (d.water || 0), (d.water || 0) >= ((cfg.targets || {}).water || 120))}
-          ${chip("Steps" + (d.steps ? " " + d.steps : ""), !!d.steps)}${chip("Check-in", !!scoreOf(d))}${ex.wk && ex.wk !== "Rest" ? chip(ex.wk + " " + ex.done + "/" + ex.total, ex.total > 0 && ex.done === ex.total) : ""}</div>`;
+          ${chip("Steps" + (d.steps ? " " + d.steps : ""), !!d.steps)}${chip("Sleep" + (d.sleepHrs ? " " + d.sleepHrs + "h" : ""), !!d.sleepHrs)}${chip("Check-in", !!scoreOf(d))}${ex.wk && ex.wk !== "Rest" ? chip(ex.wk + " " + ex.done + "/" + ex.total, ex.total > 0 && ex.done === ex.total) : ""}</div>`;
         sheet = sheetHtml(c.id);
       }
       return `<div class="card" style="margin-top:12px"><h3 style="color:var(--ink)">${esc(c.name || "Client")}</h3>
@@ -293,10 +296,10 @@ window.startCoach = function (ctx) {
       const low = v => (v && v <= 2 ? "low" : "");
       const notes = [(d.offPlan && d.offPlan.on) ? "Off plan: " + (d.offPlan.note || "") : "", d.msg ? "Message: " + d.msg : ""].filter(Boolean).join(" | ");
       return `<tr><td>${short(k)}</td><td>${d.weight || "-"}</td><td>${d.water || 0}</td><td>${d.steps || "-"}</td>
-        <td class="${low(s.n)}">${s.n || "-"}</td><td>${s.i || "-"}</td><td class="${low(s.s)}">${s.s || "-"}</td><td>${s.h || "-"}/${s.e || "-"}</td>
+        <td class="${low(s.n)}">${s.n || "-"}</td><td>${s.i || "-"}</td><td class="${low(s.s)}">${s.s || "-"}</td><td class="${d.sleepHrs && d.sleepHrs < 6 ? "low" : ""}">${d.sleepHrs || "-"}</td><td>${s.h || "-"}/${s.e || "-"}</td>
         <td>${(cfg.meals || []).length ? (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length : (d.foods || []).reduce((a, x) => a + (+x.cal || 0), 0) + " cal"}</td><td>${esc(ex.wk || "")}${ex.total ? " " + ex.done + "/" + ex.total : ""}</td><td>${esc(notes)}</td></tr>`;
     }).join("");
-    h += `<h2>Last 14 days</h2><div class="card"><div class="tablewrap"><table class="log"><thead><tr><th>Date</th><th>Wt</th><th>Water</th><th>Steps</th><th>Nut</th><th>Int</th><th>Slp</th><th>Hun/En</th><th>Meals</th><th>Workout</th><th>Notes</th></tr></thead><tbody>${rows || `<tr><td colspan="11" class="muted">No logs yet.</td></tr>`}</tbody></table></div></div>`;
+    h += `<h2>Last 14 days</h2><div class="card"><div class="tablewrap"><table class="log"><thead><tr><th>Date</th><th>Wt</th><th>Water</th><th>Steps</th><th>Nut</th><th>Int</th><th>Slp</th><th>Hrs</th><th>Hun/En</th><th>Meals</th><th>Workout</th><th>Notes</th></tr></thead><tbody>${rows || `<tr><td colspan="11" class="muted">No logs yet.</td></tr>`}</tbody></table></div></div>`;
 
     // lifts
     const liftDays = Object.keys(logs[selected] || {}).filter(k => Object.keys(logs[selected][k].lifts).length).sort().reverse().slice(0, 5);

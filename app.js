@@ -379,7 +379,8 @@ window.startClient = function (ctx) {
 
     h += `<h2>Log your day</h2><div class="card"><div class="grid2">
       <div><label class="field" for="weight">Weigh-in (lbs)</label><input id="weight" type="number" inputmode="decimal" step="0.1" data-f="weight" value="${d.weight || ""}" placeholder="morning"></div>
-      <div><label class="field" for="steps">Steps</label><input id="steps" type="number" inputmode="numeric" data-f="steps" value="${d.steps || ""}" placeholder="${T.steps.toLocaleString()}"></div></div></div>`;
+      <div><label class="field" for="steps">Steps</label><input id="steps" type="number" inputmode="numeric" data-f="steps" value="${d.steps || ""}" placeholder="${T.steps.toLocaleString()}"></div></div>
+      ${F.sleepLog === false ? "" : `<div class="grid2" style="margin-top:10px"><div><label class="field" for="sleep">How many hours did you sleep last night?</label><input id="sleep" type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleep" value="${d.sleepHrs || ""}" placeholder="e.g. 7.5"></div></div>`}</div>`;
 
     const ciDone = checkinDone(d);
     h += `<div class="card"><div class="rowline"><h3>Daily check-in</h3><span class="chip ${ciDone ? "done" : ""}">${ciDone ? "Done" : "Not yet"}</span></div>`;
@@ -607,6 +608,11 @@ window.startClient = function (ctx) {
       <div class="macro"><div class="n">${(first - cur).toFixed(1).replace(/\.0$/, "")}</div><div class="l">Lbs down</div></div></div>`;
     const av = avg7(pts);
     h += `<h2>Weight</h2><div class="card">${chart(pts, pts.length > 2 ? av : null)}${pts.length > 2 ? `<div class="legend"><span><i class="cell part"></i> Daily weigh-in</span><span><i class="cell full"></i> 7-day average${av.length ? " (" + av[av.length - 1].w + " lbs)" : ""}</span></div><div class="muted small" style="margin-top:8px">Your weight bounces day to day with water and food. The average is the number to watch.</div>` : ""}</div>`;
+    const sp = Object.keys(S.days).sort().filter(k => S.days[k].sleepHrs).map(k => ({ date: k, w: S.days[k].sleepHrs }));
+    if (F.sleepLog !== false && sp.length >= 2) {
+      const last7 = sp.filter(x => toDate(x.date) > new Date(Date.now() - 7 * 864e5)).map(x => x.w);
+      h += `<h2>Sleep</h2><div class="card">${chart(sp, null)}<div class="muted small" style="margin-top:8px">${last7.length ? "Average over the last 7 days: <strong>" + (Math.round(last7.reduce((a, b) => a + b, 0) / last7.length * 10) / 10) + " hours</strong>. " : ""}Most people feel best on 7 to 9 hours.</div></div>`;
+    }
     return h + photosSection() + liftHistory();
   }
 
@@ -774,6 +780,7 @@ window.startClient = function (ctx) {
     if (t.dataset.phAngle) { const f = t.files && t.files[0]; if (f) uploadPhoto(f, t.dataset.phAngle); t.value = ""; return; }
     const d = dayRec(date);
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
+    if (t.dataset.f === "sleep") { const v = parseFloat(t.value); d.sleepHrs = v > 0 && v <= 24 ? Math.round(v * 4) / 4 : null; save(); render(); return; }
     if (t.dataset.f === "steps") { d.steps = parseInt(t.value, 10) || null; save(); render(); return; }
     if (t.dataset.f === "cust") {
       const i = +t.dataset.i, k = t.dataset.k;
