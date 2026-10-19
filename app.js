@@ -329,6 +329,70 @@ window.startClient = function (ctx) {
       <div class="muted small" style="margin-top:6px">Copy these from the label. If you leave calories blank, they're worked out from the macros.</div>
       <div class="btns"><button class="btn" data-act="fmadd">Add to today</button><button class="btn ghost" data-act="fmclose">Cancel</button></div></div>`;
   }
+  /* ---------- barcode scanner ---------- */
+  const scan = { stream: null, stop: false, reader: null, el: null };
+  function closeScanner() {
+    scan.stop = true;
+    try { if (scan.reader) scan.reader.reset(); } catch (e) {}
+    try { if (scan.stream) scan.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    scan.stream = null; scan.reader = null;
+    if (scan.el) { scan.el.remove(); scan.el = null; }
+  }
+  function loadScript(src) {
+    return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  }
+  async function lookupBarcode(raw) {
+    const code = String(raw || "").replace(/\D/g, "");
+    if (code.length < 8) return "Enter the 8 to 13 digit number printed under the barcode.";
+    try {
+      const res = await fetch("https://world.openfoodfacts.org/api/v2/product/" + code + ".json?fields=product_name,brands,nutriments,serving_quantity,serving_size");
+      const j = await res.json(), p = j.product;
+      if (!p || j.status !== 1 || !p.nutriments || p.nutriments["energy-kcal_100g"] == null) return "That barcode isn't in the database. Try searching by name, or enter the numbers yourself.";
+      const n = p.nutriments, sq = parseFloat(p.serving_quantity);
+      const item = { n: (p.product_name || "Scanned food") + (p.brands ? " (" + p.brands.split(",")[0].trim() + ")" : ""), k: +n["energy-kcal_100g"] || 0, p: +n.proteins_100g || 0, f: +n.fat_100g || 0, c: +n.carbohydrates_100g || 0,
+        u: sq > 0 ? [["serving" + (p.serving_size ? " (" + p.serving_size + ")" : ""), sq]] : [] };
+      fs.sel = item; fs.manual = false; fs.q = "";
+      if (item.u.length) { fs.unit = item.u[0][0]; fs.amt = "1"; } else { fs.unit = "g"; fs.amt = ""; }
+      return "";
+    } catch (e) { return "Couldn't reach the food database. Check your connection and try again."; }
+  }
+  async function openScanner() {
+    closeScanner(); scan.stop = false;
+    const el = document.createElement("div"); el.className = "welcome"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Scan a barcode");
+    el.innerHTML = `<div class="wcard"><h2 style="margin:0 0 10px">Scan a barcode</h2>
+      <video id="scanvideo" playsinline muted autoplay style="width:100%;max-height:240px;border-radius:12px;background:#000"></video>
+      <div class="muted small" id="scanmsg" style="margin:8px 0">Point the camera at the barcode on the package.</div>
+      <label class="field" for="scancode">Or type the number under the barcode</label><input id="scancode" type="text" inputmode="numeric" placeholder="e.g. 722252100016">
+      <div class="btns"><button class="btn" id="scango">Look up</button><button class="btn ghost" id="scanclose">Close</button></div></div>`;
+    document.body.appendChild(el); scan.el = el;
+    const msg = t => { const m = document.getElementById("scanmsg"); if (m) m.textContent = t; };
+    const done = async code => {
+      if (scan.stop) return; scan.stop = true; msg("Looking up " + code + "...");
+      const err = await lookupBarcode(code);
+      if (err) { scan.stop = false; msg(err); startCamera(); return; }
+      closeScanner(); tab = "meals"; render(); window.scrollTo(0, 0);
+    };
+    document.getElementById("scanclose").onclick = closeScanner;
+    document.getElementById("scango").onclick = () => done(document.getElementById("scancode").value);
+    const startCamera = async () => {
+      const video = document.getElementById("scanvideo"); if (!video) return;
+      try {
+        if (!scan.stream) { scan.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } }); video.srcObject = scan.stream; await video.play(); }
+      } catch (e) { msg("The camera isn't available here. Type the barcode number instead."); video.style.display = "none"; return; }
+      if ("BarcodeDetector" in window) {
+        const det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e"] });
+        const loop = async () => { if (scan.stop || !scan.el) return; try { const r = await det.detect(video); if (r.length) { done(r[0].rawValue); return; } } catch (e) {} requestAnimationFrame(loop); };
+        loop();
+      } else {
+        try {
+          if (!window.ZXing) await loadScript("https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js");
+          if (!scan.reader) { scan.reader = new ZXing.BrowserMultiFormatReader(); scan.reader.decodeFromStream(scan.stream, video, res => { if (res && !scan.stop) done(res.getText()); }); }
+        } catch (e) { msg("Scanning isn't supported on this phone. Type the barcode number instead."); }
+      }
+    };
+    startCamera();
+  }
+
   async function searchOff() {
     const q = fs.q.trim();
     if (!q || fs.busy) return;
@@ -359,7 +423,7 @@ window.startClient = function (ctx) {
     {
       if (!ctx.readOnly) h += `<div class="muted small" style="margin-bottom:6px">Adding to</div><div class="chips" style="margin:0 0 10px">${SLOTS.map(s => `<button class="chipbtn ${curSlot() === s ? "on" : ""}" data-act="fslot" data-v="${s}">${s}</button>`).join("")}</div>`;
       h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
-        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}${manualPanel()}${savedPanel()}`;
+        ${ctx.readOnly ? "" : `<button class="linkbtn" data-act="fscan" style="margin-top:6px">Scan a barcode</button>`}<div id="fres" style="margin-top:6px">${foodResults()}</div>${foodPanel()}${manualPanel()}${savedPanel()}`;
     }
     if (list.length) {
       const row = (x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<span style="white-space:nowrap"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button> <button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></span>`}</div>`;
@@ -836,6 +900,7 @@ window.startClient = function (ctx) {
     if (t.dataset.act === "logout") { ctx.logout(); return; }
     if (t.dataset.act === "tocoach") { ctx.switchToCoach(); return; }
     if (t.dataset.act === "mydata") { myData(); return; }
+    if (t.dataset.act === "fscan") { openScanner(); return; }
     if (t.dataset.act === "restskip") { restStop(); return; }
     if (t.dataset.act === "restplus") { rest.end += 15000; rest.total += 15; restDraw(); return; }
     if (t.dataset.act === "restminus") { rest.end = Math.max(Date.now() + 1000, rest.end - 15000); restDraw(); return; }
