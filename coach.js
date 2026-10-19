@@ -79,7 +79,8 @@ window.startCoach = function (ctx) {
     if (d.steps) bits.push(d.steps.toLocaleString() + " steps");
     if (d.water) bits.push(d.water + " oz water");
     if ((cfg.meals || []).length) bits.push("meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length);
-    if ((d.foods || []).length) bits.push(d.foods.length + " extra food" + (d.foods.length > 1 ? "s" : "") + " logged (" + d.foods.reduce((a, x) => a + (+x.cal || 0), 0) + " cal)");
+    if ((d.foods || []).length) { const fc = d.foods.reduce((a, x) => a + (+x.cal || 0), 0); bits.push((cfg.meals || []).length ? d.foods.length + " extra food" + (d.foods.length > 1 ? "s" : "") + " logged (" + fc + " cal)" : d.foods.length + " food" + (d.foods.length > 1 ? "s" : "") + " logged, " + fc + " of " + ((cfg.targets || {}).calories || "?") + " cal"); }
+    else if (!(cfg.meals || []).length) bits.push("no food logged");
     lines.push(bits.join(", ") || "Nothing logged yesterday.");
     const ex = exDone(cfg, yesterday, y);
     if (ex.wk === "Rest") lines.push("Rest day"); else if (ex.wk) lines.push(`${ex.wk}: ${ex.done}/${ex.total} exercises logged`);
@@ -147,15 +148,16 @@ window.startCoach = function (ctx) {
       return before && inWin > before;
     });
     const mealPct = mealDen ? Math.round(mealSum / mealDen * 100) : 0;
+    const foodDays = days.filter(k => (rec(id, k).day.foods || []).length).length;
     const stats = [
-      ["Check-ins", ci + "/7"], ["Meals eaten", mealPct + "%"],
+      ["Check-ins", ci + "/7"], mealDen ? ["Meals eaten", mealPct + "%"] : ["Days food logged", foodDays + "/7"],
       ["Nutrition", N.length ? r1(avg(N)) : "-"], ["Intensity", I.length ? r1(avg(I)) : "-"], ["Sleep", Sl.length ? r1(avg(Sl)) : "-"],
       ["Steps (avg)", steps.length ? Math.round(avg(steps)).toLocaleString() : "-"], ["Water (avg)", water.length ? Math.round(avg(water)) + " oz" : "-"],
       ["Workouts", wkSched ? wkDone + "/" + wkSched : "-"], ["Weight avg change", wChange == null ? "-" : (wChange > 0 ? "+" : "") + wChange + " lb"], ["New bests", String(prs.length)]
     ];
     const wins = [], focus = [];
     if (ci >= 6) wins.push(`You checked in ${ci} of 7 days.`);
-    if (mealPct >= 85) wins.push(`You hit ${mealPct}% of your meals.`);
+    if (mealDen && mealPct >= 85) wins.push(`You hit ${mealPct}% of your meals.`);
     if (I.length && avg(I) >= 4.5) wins.push(`Training intensity averaged ${r1(avg(I))}.`);
     if (wChange != null && ((cfg.goalWeight || 0) < (cfg.startWeight || 0) ? wChange < 0 : wChange > 0)) wins.push(`Your weight average moved ${wChange > 0 ? "+" : ""}${wChange} lb, the right way.`);
     if (prs.length) wins.push(`${prs.length} new best${prs.length > 1 ? "s" : ""} in the gym, including ${prs[0]}.`);
@@ -187,7 +189,7 @@ window.startCoach = function (ctx) {
     const row = (l, a, b, u) => `<tr><td>${l}</td><td>${esc(a)}${u}</td><td><strong>${b}${u}</strong></td></tr>`;
     out.innerHTML = `<table class="log" style="min-width:0"><thead><tr><th></th><th>Now</th><th>New</th></tr></thead><tbody>
       ${row("Calories", T.calories, n2.cal, "")}${row("Protein", T.protein, n2.p, "g")}${row("Carbs", T.carbs, n2.c, "g")}${row("Fat", T.fat, n2.f, "g")}${row("Fat ceiling", T.fatCeiling, n2.fc, "g")}</tbody></table>
-      <div class="muted small" style="margin-top:8px">Meal plan now adds up to <b>${mt.cal} cal</b> (P ${mt.p} / F ${mt.f} / C ${mt.c}). ${Math.abs(diff) <= 25 ? "That matches the new target." : `The new target is ${Math.abs(diff)} cal ${diff < 0 ? "lower" : "higher"}. After applying, adjust the meals below${diff < 0 ? ": trim dinner rice or potato first" : ""}.`}${Math.abs(n2.p - mt.p) > 6 ? ` Protein in the meals is ${mt.p}g vs the ${n2.p}g target.` : ""}</div>`;
+      ${(cfg.meals || []).length ? `<div class="muted small" style="margin-top:8px">Meal plan now adds up to <b>${mt.cal} cal</b> (P ${mt.p} / F ${mt.f} / C ${mt.c}). ${Math.abs(diff) <= 25 ? "That matches the new target." : `The new target is ${Math.abs(diff)} cal ${diff < 0 ? "lower" : "higher"}. After applying, adjust the meals below${diff < 0 ? ": trim dinner rice or potato first" : ""}.`}${Math.abs(n2.p - mt.p) > 6 ? ` Protein in the meals is ${mt.p}g vs the ${n2.p}g target.` : ""}</div>` : `<div class="muted small" style="margin-top:8px">No fixed meal plan: these are his daily targets for food logging.</div>`}`;
   }
 
   /* ---------- swaps (editor text <-> data) ---------- */
@@ -229,7 +231,7 @@ window.startCoach = function (ctx) {
       if (cfg && cfg.meals) {
         const ex = exDone(cfg, today, r);
         const chip = (label, done) => `<span class="chip ${done ? "done" : ""}">${label}</span>`;
-        status = `<div class="tasks">${chip("Meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length, (d.meals || []).filter(Boolean).length === cfg.meals.length)}
+        status = `<div class="tasks">${cfg.meals.length ? chip("Meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length, (d.meals || []).filter(Boolean).length === cfg.meals.length) : chip("Food " + (d.foods || []).reduce((a, x) => a + (+x.cal || 0), 0) + " cal", (d.foods || []).length > 0)}
           ${chip("Weigh-in" + (d.weight ? " " + d.weight : ""), !!d.weight)}${chip("Water " + (d.water || 0), (d.water || 0) >= ((cfg.targets || {}).water || 120))}
           ${chip("Steps" + (d.steps ? " " + d.steps : ""), !!d.steps)}${chip("Check-in", !!scoreOf(d))}${ex.wk && ex.wk !== "Rest" ? chip(ex.wk + " " + ex.done + "/" + ex.total, ex.total > 0 && ex.done === ex.total) : ""}</div>`;
         sheet = sheetHtml(c.id);
@@ -292,7 +294,7 @@ window.startCoach = function (ctx) {
       const notes = [(d.offPlan && d.offPlan.on) ? "Off plan: " + (d.offPlan.note || "") : "", d.msg ? "Message: " + d.msg : ""].filter(Boolean).join(" | ");
       return `<tr><td>${short(k)}</td><td>${d.weight || "-"}</td><td>${d.water || 0}</td><td>${d.steps || "-"}</td>
         <td class="${low(s.n)}">${s.n || "-"}</td><td>${s.i || "-"}</td><td class="${low(s.s)}">${s.s || "-"}</td><td>${s.h || "-"}/${s.e || "-"}</td>
-        <td>${(d.meals || []).filter(Boolean).length}/${(cfg.meals || []).length}</td><td>${esc(ex.wk || "")}${ex.total ? " " + ex.done + "/" + ex.total : ""}</td><td>${esc(notes)}</td></tr>`;
+        <td>${(cfg.meals || []).length ? (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length : (d.foods || []).reduce((a, x) => a + (+x.cal || 0), 0) + " cal"}</td><td>${esc(ex.wk || "")}${ex.total ? " " + ex.done + "/" + ex.total : ""}</td><td>${esc(notes)}</td></tr>`;
     }).join("");
     h += `<h2>Last 14 days</h2><div class="card"><div class="tablewrap"><table class="log"><thead><tr><th>Date</th><th>Wt</th><th>Water</th><th>Steps</th><th>Nut</th><th>Int</th><th>Slp</th><th>Hun/En</th><th>Meals</th><th>Workout</th><th>Notes</th></tr></thead><tbody>${rows || `<tr><td colspan="11" class="muted">No logs yet.</td></tr>`}</tbody></table></div></div>`;
 

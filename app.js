@@ -58,7 +58,7 @@ window.startClient = function (ctx) {
   function tasks(k) {
     const d = peek(k);
     const t = [
-      { label: "Meals", done: C.meals.every((_, i) => d.meals[i]) },
+      C.meals.length ? { label: "Meals", done: C.meals.every((_, i) => d.meals[i]) } : { label: "Food log", done: (d.foods || []).length > 0 },
       { label: "Weigh-in", done: !!d.weight },
       { label: "Water", done: (d.water || 0) >= C.targets.water },
       { label: "Steps", done: !!d.steps },
@@ -445,7 +445,7 @@ window.startClient = function (ctx) {
     const mac = (label, v, t, unit) => `<div class="macro"><div class="n">${v}${unit}</div><div class="l">${label}</div><div class="t">of ${t}${unit}</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
       <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">Check off your meals on the Meals tab and these numbers fill in.</div></div>
+      <div class="muted small" style="margin-top:8px">${C.meals.length ? "Check off your meals on the Meals tab and these numbers fill in." : "Log what you eat on the Food tab and these numbers fill in."}</div></div>
       <div class="macros">${mac("Protein", done.p, T.protein, "g")}${mac("Carbs", done.c, T.carbs, "g")}${mac("Fat", done.f, T.fat, "g")}</div>`;
     h += `<h2>Water</h2><div class="card"><div class="rowline"><span class="big">${w}<span class="muted small"> / ${T.water} oz</span></span></div>
       <div class="bar ${w >= T.water ? "good" : ""}"><i style="width:${pctOf(w, T.water)}%"></i></div>
@@ -459,6 +459,15 @@ window.startClient = function (ctx) {
   function viewMeals() {
     const d = dayRec(date);
     const n = (d.meals || []).filter(Boolean).length;
+    if (!C.meals.length) {
+      const done = consumed(d), T = C.targets;
+      let h = header("Food log", niceDate(date));
+      h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
+        <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
+        <div class="rowline" style="margin-top:10px"><span>Protein <strong>${r1(done.p)}</strong> / ${T.protein}g</span><span>Carbs <strong>${r1(done.c)}</strong> / ${T.carbs}g</span><span>Fat <strong>${r1(done.f)}</strong> / ${T.fat}g</span></div>
+        <div class="muted small" style="margin-top:8px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
+      return h + foodCard(d);
+    }
     let h = header("Meal plan", niceDate(date));
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${n} of ${C.meals.length} meals</span></div><div class="bar ${n === C.meals.length ? "good" : ""}"><i style="width:${pctOf(n, C.meals.length)}%"></i></div>
       <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it. Ate something that isn't in your plan? Search it under "Log a food" and enter the weight.</div></div>`;
@@ -706,6 +715,7 @@ window.startClient = function (ctx) {
     }
   });
 
+  { const mb = document.querySelector('#tabs [data-tab="meals"]'); if (mb) mb.textContent = C.meals.length ? "Meals" : "Food"; }
   render();
   updateDot();
 };
