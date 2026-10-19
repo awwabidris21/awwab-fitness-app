@@ -236,7 +236,7 @@ window.startClient = function (ctx) {
       <div class="grid2"><div><label class="field" for="famt">Amount</label><input id="famt" type="number" inputmode="decimal" data-f="famt" value="${esc(fs.amt)}" placeholder="e.g. 150"></div>
       <div><label class="field" for="funit">Unit</label><select id="funit" data-f="funit">${foodUnits(f).map(x => `<option value="${esc(x[0])}" ${fs.unit === x[0] ? "selected" : ""}>${esc(x[0])}</option>`).join("")}</select></div></div>
       <div id="fprev" style="margin:10px 0">${foodPreview()}</div>
-      <div class="btns"><button class="btn" data-act="fadd">Add to today</button><button class="btn ghost" data-act="fcancel">Cancel</button></div></div>`;
+      <div class="btns">${ctx.readOnly ? `<div class="muted small" style="margin-right:8px;align-self:center">Preview only: adding is turned off.</div>` : `<button class="btn" data-act="fadd">Add to today</button>`}<button class="btn ghost" data-act="fcancel">Cancel</button></div></div>`;
   }
   const titleCase = t => String(t || "").toLowerCase().replace(/(^|[\s(\/-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
   async function searchOff() {
@@ -266,7 +266,7 @@ window.startClient = function (ctx) {
   function foodCard(d) {
     const list = d.foods || [];
     let h = `<h2>Log a food</h2><div class="card">`;
-    if (!ctx.readOnly) {
+    {
       h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
         <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}`;
     }
@@ -623,7 +623,7 @@ window.startClient = function (ctx) {
       return;
     }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
-    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose"].includes(t.dataset.act)) return;
+    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }
     const d = dayRec(date);
@@ -678,11 +678,11 @@ window.startClient = function (ctx) {
   });
 
   document.addEventListener("change", e => {
-    if (ctx.readOnly) return;
     const t = e.target;
+    if (t.dataset.f === "funit") { fs.unit = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); return; }
+    if (ctx.readOnly) return;
     if (t.dataset.phAngle) { const f = t.files && t.files[0]; if (f) uploadPhoto(f, t.dataset.phAngle); t.value = ""; return; }
     const d = dayRec(date);
-    if (t.dataset.f === "funit") { fs.unit = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); return; }
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
     if (t.dataset.f === "steps") { d.steps = parseInt(t.value, 10) || null; save(); render(); return; }
     if (t.dataset.f === "cust") {
