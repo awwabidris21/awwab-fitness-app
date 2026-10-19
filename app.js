@@ -239,7 +239,10 @@ window.startClient = function (ctx) {
 
   /* ---------- food search & logging ---------- */
   const OZ = 28.3495;
-  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {} };
+  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {}, slot: null };
+  const SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"];
+  const slotNow = () => { const h = new Date().getHours(); return h < 11 ? "Breakfast" : h < 16 ? "Lunch" : h < 21 ? "Dinner" : "Snack"; };
+  const curSlot = () => fs.slot || slotNow();
   let saved = null, savedNote = "";
   async function loadSaved() {
     if (ctx.readOnly || saved) return;
@@ -354,11 +357,14 @@ window.startClient = function (ctx) {
     const list = d.foods || [];
     let h = `<h2>Log a food</h2><div class="card">`;
     {
+      if (!ctx.readOnly) h += `<div class="muted small" style="margin-bottom:6px">Adding to</div><div class="chips" style="margin:0 0 10px">${SLOTS.map(s => `<button class="chipbtn ${curSlot() === s ? "on" : ""}" data-act="fslot" data-v="${s}">${s}</button>`).join("")}</div>`;
       h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
         <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}${manualPanel()}${savedPanel()}`;
     }
     if (list.length) {
-      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + list.map((x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<span style="white-space:nowrap"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button> <button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></span>`}</div>`).join("") + `</div>`;
+      const row = (x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<span style="white-space:nowrap"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button> <button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></span>`}</div>`;
+      const groups = SLOTS.concat("Other").map(s => ({ s, items: list.map((x, i) => ({ x, i })).filter(o => (SLOTS.includes(o.x.slot) ? o.x.slot : "Other") === s) })).filter(g => g.items.length);
+      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + groups.map(g => `<div class="slothead"><span>${g.s === "Other" && groups.length === 1 ? "Foods" : g.s}</span><span>${g.items.reduce((a, o) => a + (+o.x.cal || 0), 0)} cal</span></div>` + g.items.map(o => row(o.x, o.i)).join("")).join("") + `</div>`;
     } else if (ctx.readOnly) h += `<div class="muted small">No extra foods logged.</div>`;
     return h + `</div>`;
   }
@@ -645,6 +651,7 @@ window.startClient = function (ctx) {
       <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
       ${pwMsg ? `<div class="${pwOk ? "muted" : "err"} small" style="margin-top:8px">${esc(pwMsg)}</div>` : ""}
       <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>
+      <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>
       <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
     return h;
@@ -757,6 +764,21 @@ window.startClient = function (ctx) {
     return h + (rows || `<div class="muted">Your weekly scores will show up here.</div>`) + `</div>`;
   }
 
+  function myData() {
+    const csvCell = v => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const head = ["date", "weight_lbs", "steps", "water_oz", "sleep_hours", "nutrition_1to5", "intensity_1to5", "sleep_1to5", "calories", "protein_g", "carbs_g", "fat_g", "session", "lifts"];
+    const keys = [...new Set(Object.keys(S.days).concat(Object.keys(S.lifts)))].sort();
+    const rows = keys.map(k => {
+      const d = S.days[k] || { meals: [] }, ck = d.checkin || {}, t = consumed(d);
+      const lifts = Object.keys(S.lifts[k] || {}).map(ex => ex + ": " + loggedSets(k, ex).map(s => (s.w || "?") + "x" + s.r).join(" ")).filter(x => !/: $/.test(x)).join("; ");
+      return [k, d.weight, d.steps, d.water, d.sleepHrs, ck.n, ck.i, ck.s, t.cal || "", t.cal ? Math.round(t.p) : "", t.cal ? Math.round(t.c) : "", t.cal ? Math.round(t.f) : "", d.workout || "", lifts].map(csvCell).join(",");
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([[head.join(",")].concat(rows).join("\n")], { type: "text/csv" }));
+    a.download = "my-fitness-data-" + realToday + ".csv"; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+
   /* ---------- rest timer ---------- */
   const restOn = () => { try { return localStorage.getItem("restTimer") !== "off"; } catch (e) { return true; } };
   const rest = { end: 0, total: 0, iv: null, done: false };
@@ -813,6 +835,7 @@ window.startClient = function (ctx) {
     }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
     if (t.dataset.act === "tocoach") { ctx.switchToCoach(); return; }
+    if (t.dataset.act === "mydata") { myData(); return; }
     if (t.dataset.act === "restskip") { restStop(); return; }
     if (t.dataset.act === "restplus") { rest.end += 15000; rest.total += 15; restDraw(); return; }
     if (t.dataset.act === "restminus") { rest.end = Math.max(Date.now() + 1000, rest.end - 15000); restDraw(); return; }
@@ -838,7 +861,7 @@ window.startClient = function (ctx) {
       case "sadd": {
         const m = (saved || []).find(x => String(x.id) === t.dataset.id); if (!m) return;
         d.foods = d.foods || [];
-        d.foods.push({ n: m.name, amt: "saved meal", g: 0, cal: Math.round(m.cal), p: r1(m.p), f: r1(m.f), c: r1(m.c) });
+        d.foods.push({ slot: curSlot(), n: m.name, amt: "saved meal", g: 0, cal: Math.round(m.cal), p: r1(m.p), f: r1(m.f), c: r1(m.c) });
         savedNote = ""; save(); break;
       }
       case "ssave": {
@@ -857,8 +880,9 @@ window.startClient = function (ctx) {
         ctx.sb.from("saved_meals").delete().eq("id", id).then(() => {});
         break;
       }
+      case "fslot": fs.slot = t.dataset.v; break;
       case "frepeat": { d.foods = (d.foods || []).concat(yesterdayFoods().map(f => Object.assign({}, f))); save(); break; }
-      case "frecent": { const f = recentFoods()[+t.dataset.i]; if (!f) return; d.foods = d.foods || []; d.foods.push(Object.assign({}, f)); save(); break; }
+      case "frecent": { const f = recentFoods()[+t.dataset.i]; if (!f) return; d.foods = d.foods || []; d.foods.push(Object.assign({}, f, { slot: curSlot() })); save(); break; }
       case "fmopen": fs.manual = true; fs.sel = null; break;
       case "fmclose": fs.manual = false; fs.man = {}; break;
       case "fmadd": {
@@ -866,14 +890,14 @@ window.startClient = function (ctx) {
         const cal = m.cal !== "" && m.cal != null && !isNaN(+m.cal) ? Math.round(+m.cal) : Math.round(p * 4 + c * 4 + f * 9);
         if (!cal && !p && !c && !f) return;
         d.foods = d.foods || [];
-        d.foods.push({ n: (m.n || "").trim() || "Quick add", amt: "entered by hand", g: 0, cal, p: r1(p), f: r1(f), c: r1(c) });
+        d.foods.push({ slot: curSlot(), n: (m.n || "").trim() || "Quick add", amt: "entered by hand", g: 0, cal, p: r1(p), f: r1(f), c: r1(c) });
         fs.manual = false; fs.man = {}; save(); break;
       }
       case "foff": searchOff(); return;
       case "fadd": {
         const x = foodCalc(); if (!x) return;
         d.foods = d.foods || [];
-        d.foods.push({ n: fs.sel.n, amt: fs.amt + " " + (fs.unit.length > 22 ? fs.unit.split(" (")[0] : fs.unit), g: x.g, cal: x.cal, p: x.p, f: x.f, c: x.c });
+        d.foods.push({ slot: curSlot(), n: fs.sel.n, amt: fs.amt + " " + (fs.unit.length > 22 ? fs.unit.split(" (")[0] : fs.unit), g: x.g, cal: x.cal, p: x.p, f: x.f, c: x.c });
         fs.sel = null; fs.q = ""; fs.off = []; fs.offMsg = ""; fs.amt = ""; save(); break;
       }
       case "fdel": if (d.foods) { d.foods.splice(+t.dataset.i, 1); save(); } break;
