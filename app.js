@@ -193,7 +193,88 @@ window.startClient = function (ctx) {
     if (v >= 1 && m.swaps && m.swaps[v - 1]) { const s = m.swaps[v - 1]; return { label: s.name, items: s.items || [], p: +s.p || 0, f: +s.f || 0, c: +s.c || 0, cal: +s.cal || 0 }; }
     return { label: "", items: m.items, p: m.p, f: m.f, c: m.c, cal: m.cal };
   }
-  const consumed = d => C.meals.reduce((a, m, i) => { if (!d.meals[i]) return a; const v = mealVariant(m, i, d); return { p: a.p + v.p, f: a.f + v.f, c: a.c + v.c, cal: a.cal + v.cal }; }, { p: 0, f: 0, c: 0, cal: 0 });
+  const consumed = d => (d.foods || []).reduce((a, x) => ({ p: a.p + (+x.p || 0), f: a.f + (+x.f || 0), c: a.c + (+x.c || 0), cal: a.cal + (+x.cal || 0) }),
+    C.meals.reduce((a, m, i) => { if (!d.meals[i]) return a; const v = mealVariant(m, i, d); return { p: a.p + v.p, f: a.f + v.f, c: a.c + v.c, cal: a.cal + v.cal }; }, { p: 0, f: 0, c: 0, cal: 0 }));
+
+  /* ---------- food search & logging ---------- */
+  const OZ = 28.3495;
+  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "" };
+  const r1 = v => Math.round(v * 10) / 10;
+  function localFoods(q) {
+    const words = q.toLowerCase().split(/[\s,]+/).filter(Boolean);
+    if (!words.length) return [];
+    return (window.FOODS || []).filter(f => words.every(w => f.n.toLowerCase().includes(w)))
+      .sort((a, b) => (b.n.toLowerCase().startsWith(words[0]) ? 1 : 0) - (a.n.toLowerCase().startsWith(words[0]) ? 1 : 0)).slice(0, 8);
+  }
+  const foodRow = (f, src, i) => `<button class="opt" data-act="fpick" data-src="${src}" data-i="${i}"><strong>${esc(f.n)}</strong><span class="muted small"> ${Math.round(f.k)} cal, P ${r1(f.p)} / F ${r1(f.f)} / C ${r1(f.c)} per 100 g</span></button>`;
+  function foodResults() {
+    if (!fs.q.trim()) return `<div class="muted small">Type a food, then tap it and enter how much you ate.</div>`;
+    const loc = localFoods(fs.q);
+    let h = loc.map((f, i) => foodRow(f, "l", i)).join("");
+    h += fs.off.map((f, i) => foodRow(f, "o", i)).join("");
+    if (!loc.length && !fs.off.length && !fs.busy) h += `<div class="muted small" style="margin-bottom:8px">Not in the common list.</div>`;
+    h += fs.busy ? `<div class="muted small">Searching the food database...</div>` : `<button class="linkbtn" data-act="foff">Search more foods and brands</button>`;
+    if (fs.offMsg) h += `<div class="muted small">${esc(fs.offMsg)}</div>`;
+    return h;
+  }
+  function foodUnits(f) { return [["g", 1], ["oz", OZ]].concat(f.u || []); }
+  function foodCalc() {
+    const f = fs.sel, amt = parseFloat(fs.amt);
+    if (!f || !(amt > 0)) return null;
+    const u = foodUnits(f).find(x => x[0] === fs.unit) || ["g", 1];
+    const g = amt * u[1], k = g / 100;
+    return { g: Math.round(g), cal: Math.round(f.k * k), p: r1(f.p * k), f: r1(f.f * k), c: r1(f.c * k) };
+  }
+  function foodPreview() {
+    const x = foodCalc();
+    return x ? `<strong>${x.cal} cal</strong> &middot; P ${x.p}g &middot; F ${x.f}g &middot; C ${x.c}g <span class="muted small">(${x.g} g)</span>` : `<span class="muted small">Enter an amount to see the numbers.</span>`;
+  }
+  function foodPanel() {
+    const f = fs.sel;
+    if (!f) return "";
+    return `<div class="swappanel" style="margin:12px 0 0;border-top:1px solid var(--line);padding-top:12px"><h3 style="color:var(--ink)">${esc(f.n)}</h3>
+      <div class="grid2"><div><label class="field" for="famt">Amount</label><input id="famt" type="number" inputmode="decimal" data-f="famt" value="${esc(fs.amt)}" placeholder="e.g. 150"></div>
+      <div><label class="field" for="funit">Unit</label><select id="funit" data-f="funit">${foodUnits(f).map(x => `<option value="${esc(x[0])}" ${fs.unit === x[0] ? "selected" : ""}>${esc(x[0])}</option>`).join("")}</select></div></div>
+      <div id="fprev" style="margin:10px 0">${foodPreview()}</div>
+      <div class="btns"><button class="btn" data-act="fadd">Add to today</button><button class="btn ghost" data-act="fcancel">Cancel</button></div></div>`;
+  }
+  const titleCase = t => String(t || "").toLowerCase().replace(/(^|[\s(\/-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  async function searchOff() {
+    const q = fs.q.trim();
+    if (!q || fs.busy) return;
+    fs.busy = true; fs.offMsg = ""; refreshFood();
+    try {
+      const key = (typeof USDA_KEY !== "undefined" && USDA_KEY) || "DEMO_KEY";
+      const url = "https://api.nal.usda.gov/fdc/v1/foods/search?pageSize=12&dataType=Foundation,SR%20Legacy,Branded&api_key=" + encodeURIComponent(key) + "&query=" + encodeURIComponent(q);
+      const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 15000);
+      const res = await fetch(url, { signal: ctl.signal }); clearTimeout(to);
+      if (res.status === 429) throw new Error("busy");
+      const j = await res.json();
+      fs.off = (j.foods || []).map(x => {
+        const num = {}; (x.foodNutrients || []).forEach(n => { num[n.nutrientNumber] = +n.value; });
+        const k = num["208"] != null ? num["208"] : (num["957"] != null ? num["957"] : num["958"]);
+        if (k == null || isNaN(k)) return null;
+        const ss = +x.servingSize, unit = String(x.servingSizeUnit || "").toLowerCase();
+        const u = ss > 0 && (unit === "g" || unit === "grm") ? [["serving" + (x.householdServingFullText ? " (" + x.householdServingFullText.toLowerCase() + ")" : " (" + ss + " g)"), ss]] : [];
+        return { n: titleCase(x.description) + (x.brandName || x.brandOwner ? " (" + titleCase(x.brandName || x.brandOwner) + ")" : ""), k, p: num["203"] || 0, f: num["204"] || 0, c: num["205"] || 0, u };
+      }).filter(Boolean).slice(0, 10);
+      fs.offMsg = fs.off.length ? "These come from the USDA food database. Brand-name numbers can differ from your label, so check it if you can." : "Nothing found. Try fewer words, or use Something else on a meal.";
+    } catch (e) { fs.offMsg = e.message === "busy" ? "Food search is busy right now. Try again in a little while, or use Something else on a meal." : "Couldn't reach the food database. Check your connection and try again."; }
+    fs.busy = false; refreshFood();
+  }
+  function refreshFood() { const el = document.getElementById("fres"); if (el) el.innerHTML = foodResults(); }
+  function foodCard(d) {
+    const list = d.foods || [];
+    let h = `<h2>Log a food</h2><div class="card">`;
+    if (!ctx.readOnly) {
+      h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
+        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}`;
+    }
+    if (list.length) {
+      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + list.map((x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button>`}</div>`).join("") + `</div>`;
+    } else if (ctx.readOnly) h += `<div class="muted small">No extra foods logged.</div>`;
+    return h + `</div>`;
+  }
   const pctOf = (v, t) => (t ? Math.max(0, Math.min(100, Math.round(v / t * 100))) : 0);
 
   function ring(pct, text, sub) {
@@ -380,7 +461,9 @@ window.startClient = function (ctx) {
     const n = (d.meals || []).filter(Boolean).length;
     let h = header("Meal plan", niceDate(date));
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${n} of ${C.meals.length} meals</span></div><div class="bar ${n === C.meals.length ? "good" : ""}"><i style="width:${pctOf(n, C.meals.length)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it. Ate something different? Tap "Swap or change."</div></div>`;
+      <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it. Ate something that isn't in your plan? Search it under "Log a food" and enter the weight.</div></div>`;
+    h += foodCard(d);
+    h += `<h2>Your meal plan</h2>`;
     h += C.meals.map((m, i) => {
       const v = mealVariant(m, i, d);
       let out = `<div class="card meal ${d.meals[i] ? "done" : ""}" data-act="meal" data-i="${i}" role="checkbox" aria-checked="${!!d.meals[i]}" tabindex="0">
@@ -554,6 +637,16 @@ window.startClient = function (ctx) {
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
+      case "fpick": { const src = t.dataset.src, i = +t.dataset.i; const list = src === "l" ? localFoods(fs.q) : fs.off; fs.sel = list[i] || null; fs.unit = "g"; fs.amt = ""; break; }
+      case "fcancel": fs.sel = null; break;
+      case "foff": searchOff(); return;
+      case "fadd": {
+        const x = foodCalc(); if (!x) return;
+        d.foods = d.foods || [];
+        d.foods.push({ n: fs.sel.n, amt: fs.amt + " " + (fs.unit.length > 22 ? fs.unit.split(" (")[0] : fs.unit), g: x.g, cal: x.cal, p: x.p, f: x.f, c: x.c });
+        fs.sel = null; fs.q = ""; fs.off = []; fs.offMsg = ""; fs.amt = ""; save(); break;
+      }
+      case "fdel": if (d.foods) { d.foods.splice(+t.dataset.i, 1); save(); } break;
       case "ciopen": checkinOpen = true; break;
       case "ciclose": checkinOpen = false; break;
       case "offplan": d.offPlan = d.offPlan || {}; d.offPlan.on = !d.offPlan.on; save(); break;
@@ -574,7 +667,13 @@ window.startClient = function (ctx) {
     const y = window.scrollY; render(); window.scrollTo(0, y);
   }
 
+  document.addEventListener("input", e => {
+    const t = e.target;
+    if (t.dataset.f === "fq") { fs.q = t.value; fs.off = []; fs.offMsg = ""; refreshFood(); }
+    else if (t.dataset.f === "famt") { fs.amt = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); }
+  });
   document.addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.id === "fq") { e.preventDefault(); searchOff(); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches('[data-act="meal"]')) { e.preventDefault(); e.target.click(); }
   });
 
@@ -583,6 +682,7 @@ window.startClient = function (ctx) {
     const t = e.target;
     if (t.dataset.phAngle) { const f = t.files && t.files[0]; if (f) uploadPhoto(f, t.dataset.phAngle); t.value = ""; return; }
     const d = dayRec(date);
+    if (t.dataset.f === "funit") { fs.unit = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); return; }
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
     if (t.dataset.f === "steps") { d.steps = parseInt(t.value, 10) || null; save(); render(); return; }
     if (t.dataset.f === "cust") {

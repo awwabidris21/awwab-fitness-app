@@ -79,6 +79,7 @@ window.startCoach = function (ctx) {
     if (d.steps) bits.push(d.steps.toLocaleString() + " steps");
     if (d.water) bits.push(d.water + " oz water");
     if ((cfg.meals || []).length) bits.push("meals " + (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length);
+    if ((d.foods || []).length) bits.push(d.foods.length + " extra food" + (d.foods.length > 1 ? "s" : "") + " logged (" + d.foods.reduce((a, x) => a + (+x.cal || 0), 0) + " cal)");
     lines.push(bits.join(", ") || "Nothing logged yesterday.");
     const ex = exDone(cfg, yesterday, y);
     if (ex.wk === "Rest") lines.push("Rest day"); else if (ex.wk) lines.push(`${ex.wk}: ${ex.done}/${ex.total} exercises logged`);
