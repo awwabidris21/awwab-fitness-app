@@ -38,7 +38,25 @@ window.startClient = function (ctx) {
 
   const dayRec = k => { if (!S.days[k]) S.days[k] = { meals: [], water: 0 }; return S.days[k]; };
   const scheduled = k => C.schedule[toDate(k).getDay()];
-  const workoutFor = k => (S.days[k] && S.days[k].workout) || scheduled(k);
+  // Rotation mode (config `rotation: true`): the suggested session is the next one in the cycle after the last
+  // session actually logged, so skipping a day pushes the order back instead of losing a session.
+  const cycleOf = () => [1, 2, 3, 4, 5, 6, 0].map(i => C.schedule[i]).filter(x => x && x !== "Rest");
+  const dayLifted = k => Object.keys(S.lifts[k] || {}).some(ex => loggedSets(k, ex).length > 0);
+  function rotDefault(k) {
+    const cyc = cycleOf(), n = cyc.length;
+    if (!n) return scheduled(k);
+    let p = 0;
+    const logged = [...new Set(Object.keys(S.days).concat(Object.keys(S.lifts)))].filter(j => j < k).sort();
+    logged.forEach(j => {
+      const ex = S.days[j] && S.days[j].workout;
+      const sess = ex || (scheduled(j) === "Rest" ? "Rest" : cyc[p]);
+      if (sess === "Rest" || !(ex || dayLifted(j))) return;
+      if (cyc[p] === sess) p = (p + 1) % n;
+      else for (let s = 1; s < n; s++) if (cyc[(p + s) % n] === sess) { p = (p + s + 1) % n; break; }
+    });
+    return scheduled(k) === "Rest" ? "Rest" : cyc[p];
+  }
+  const workoutFor = k => (S.days[k] && S.days[k].workout) || (C.rotation ? rotDefault(k) : scheduled(k));
   const peek = k => S.days[k] || { meals: [], water: 0 };
 
   const weekNum = () => Math.min(C.totalWeeks, Math.max(1, Math.floor((toDate(date) - toDate(C.startDate)) / 864e5 / 7) + 1));
@@ -199,6 +217,23 @@ window.startClient = function (ctx) {
   /* ---------- food search & logging ---------- */
   const OZ = 28.3495;
   const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {} };
+  let saved = null, savedNote = "";
+  async function loadSaved() {
+    if (ctx.readOnly || saved) return;
+    saved = [];
+    try {
+      const { data, error } = await ctx.sb.from("saved_meals").select("id,name,cal,p,f,c").eq("user_id", ctx.userId).order("created_at", { ascending: false });
+      if (error) throw error;
+      saved = data || [];
+      if ((tab === "meals") && saved.length) { const y = window.scrollY; render(); window.scrollTo(0, y); }
+    } catch (e) { saved = []; }
+  }
+  function savedPanel() {
+    if (ctx.readOnly || !saved || !saved.length) return savedNote ? `<div class="muted small" style="margin-top:8px">${esc(savedNote)}</div>` : "";
+    return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><label class="field">Your saved meals</label>` + saved.slice(0, 10).map(m =>
+      `<div class="rowline" style="padding:6px 0"><button class="opt" style="margin:0 8px 0 0;flex:1" data-act="sadd" data-id="${m.id}"><strong>${esc(m.name)}</strong><span class="muted small"> ${Math.round(m.cal)} cal, P ${r1(m.p)} / F ${r1(m.f)} / C ${r1(m.c)}</span></button><button class="linkbtn" data-act="sdel" data-id="${m.id}" aria-label="Delete ${esc(m.name)}">Delete</button></div>`).join("") +
+      (savedNote ? `<div class="muted small">${esc(savedNote)}</div>` : "") + `</div>`;
+  }
   const r1 = v => Math.round(v * 10) / 10;
   function localFoods(q) {
     const words = q.toLowerCase().split(/[\s,]+/).filter(Boolean);
@@ -278,10 +313,10 @@ window.startClient = function (ctx) {
     let h = `<h2>Log a food</h2><div class="card">`;
     {
       h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
-        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}${manualPanel()}`;
+        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}${manualPanel()}${savedPanel()}`;
     }
     if (list.length) {
-      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + list.map((x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button>`}</div>`).join("") + `</div>`;
+      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + list.map((x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<span style="white-space:nowrap"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button> <button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></span>`}</div>`).join("") + `</div>`;
     } else if (ctx.readOnly) h += `<div class="muted small">No extra foods logged.</div>`;
     return h + `</div>`;
   }
@@ -419,7 +454,7 @@ window.startClient = function (ctx) {
   function viewTraining() {
     const wk = workoutFor(date);
     let h = header(wk === "Rest" ? "Rest day" : wk, "Training - " + niceDate(date));
-    h += `<div class="muted small" style="margin:14px 0 6px">What did you train? Change it if you did a different session than scheduled.</div>
+    h += `<div class="muted small" style="margin:14px 0 6px">What did you train? Change it if you did a different session than scheduled.${C.rotation ? " Your suggested session follows your rotation, so a skipped day just pushes the order back." : ""}</div>
       <div class="seg">${Object.keys(C.workouts).concat("Rest").map(t => `<button data-act="wtype" data-v="${esc(t)}" class="${t === wk ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
     if (wk === "Rest") {
       h += `<div class="card">No lifting today. Hit your steps, water and meals, and get good sleep.</div>`;
@@ -626,6 +661,7 @@ window.startClient = function (ctx) {
 
   /* ---------- render & events ---------- */
   function render() {
+    if (tab === "meals") loadSaved();
     const views = { home: viewHome, training: viewTraining, nutrition: viewNutrition, meals: viewMeals, notes: viewNotes, progress: viewProgress, streaks: viewStreaks };
     document.getElementById("view").innerHTML = views[tab]();
     const hl = tab === "progress" || tab === "streaks" ? "home" : tab;
@@ -660,6 +696,28 @@ window.startClient = function (ctx) {
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
       case "fpick": { const src = t.dataset.src, i = +t.dataset.i; const list = src === "l" ? localFoods(fs.q) : fs.off; fs.sel = list[i] || null; fs.unit = "g"; fs.amt = ""; fs.manual = false; break; }
       case "fcancel": fs.sel = null; break;
+      case "sadd": {
+        const m = (saved || []).find(x => String(x.id) === t.dataset.id); if (!m) return;
+        d.foods = d.foods || [];
+        d.foods.push({ n: m.name, amt: "saved meal", g: 0, cal: Math.round(m.cal), p: r1(m.p), f: r1(m.f), c: r1(m.c) });
+        savedNote = ""; save(); break;
+      }
+      case "ssave": {
+        const x = (d.foods || [])[+t.dataset.i]; if (!x) return;
+        if ((saved || []).some(m => m.name === x.n && Math.round(m.cal) === Math.round(x.cal))) { savedNote = "Already saved."; break; }
+        savedNote = "Saving...";
+        ctx.sb.from("saved_meals").insert({ user_id: ctx.userId, name: x.n, cal: x.cal, p: x.p, f: x.f, c: x.c }).select("id,name,cal,p,f,c").single().then(({ data, error }) => {
+          if (error) savedNote = "Couldn't save that. Try again."; else { saved = [data].concat(saved || []); savedNote = "Saved. You'll find it under your saved meals."; }
+          const y = window.scrollY; render(); window.scrollTo(0, y);
+        });
+        break;
+      }
+      case "sdel": {
+        const id = t.dataset.id; if (!confirm("Delete this saved meal?")) return;
+        saved = (saved || []).filter(m => String(m.id) !== id); savedNote = "";
+        ctx.sb.from("saved_meals").delete().eq("id", id).then(() => {});
+        break;
+      }
       case "fmopen": fs.manual = true; fs.sel = null; break;
       case "fmclose": fs.manual = false; fs.man = {}; break;
       case "fmadd": {
