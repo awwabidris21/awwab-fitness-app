@@ -120,6 +120,11 @@ window.startCoach = function (ctx) {
       return `<div class="card"><h3>${short(k)} - ${esc(sessionName(cfg, k, r.day))}</h3>${lines}</div>`;
     }).join("") || `<div class="card muted">No lifts logged yet.</div>`);
 
+    // progress photos
+    const photoDays = Object.keys(logs[selected] || {}).filter(k => (logs[selected][k].day.photos || []).length).sort().reverse().slice(0, 8);
+    h += `<h2>Progress photos</h2>` + (photoDays.map(k => `<div class="card"><h3 style="color:var(--ink)">${short(k)}</h3><div class="photogrid">${logs[selected][k].day.photos.map(p =>
+      `<div class="ph"><a target="_blank" rel="noopener"><img data-ph="${esc(p.p)}" alt="${esc(p.a)} photo, ${k}"></a><div class="phl"><span>${esc(p.a)}</span></div></div>`).join("")}</div></div>`).join("") || `<div class="card muted">No photos yet.</div>`);
+
     // plan editor
     const T = cfg.targets || {}, rv = cfg.weeklyReview || {};
     const num = (id, label, v) => `<div><label class="field" for="${id}">${label}</label><input id="${id}" type="number" inputmode="numeric" value="${esc(v)}"></div>`;
@@ -147,7 +152,18 @@ window.startCoach = function (ctx) {
     return h;
   }
 
-  function render() { view.innerHTML = selected ? viewClient() : viewList(); window.scrollTo(0, 0); }
+  const urls = {};
+  async function hydratePhotos() {
+    const imgs = [...document.querySelectorAll("img[data-ph]")];
+    const need = [...new Set(imgs.map(i => i.dataset.ph).filter(p => !urls[p]))];
+    if (need.length) {
+      const { data } = await sb.storage.from("progress-photos").createSignedUrls(need, 3600);
+      (data || []).forEach(x => { if (x.signedUrl) urls[x.path] = x.signedUrl; });
+    }
+    imgs.forEach(i => { const u = urls[i.dataset.ph]; if (u) { i.src = u; const a = i.closest("a"); if (a) a.href = u; } });
+  }
+
+  function render() { view.innerHTML = selected ? viewClient() : viewList(); window.scrollTo(0, 0); hydratePhotos().catch(() => {}); }
 
   async function upsertConfig(id, cfg) {
     const { error } = await sb.from("client_config").upsert({ user_id: id, config: cfg, updated_at: new Date().toISOString() });

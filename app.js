@@ -27,7 +27,7 @@ window.startClient = function (ctx) {
       clearTimeout(timer); timer = setTimeout(flush, 5000);
     }
   }
-  const save = () => { if (ctx.readOnly) return; dirty.add(date); setStatus("Saving..."); clearTimeout(timer); timer = setTimeout(flush, 600); };
+  const save = k => { if (ctx.readOnly) return; dirty.add(k || date); setStatus("Saving..."); clearTimeout(timer); timer = setTimeout(flush, 600); };
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -83,6 +83,75 @@ window.startClient = function (ctx) {
   const DAY_TABS = ["home", "training", "nutrition", "meals"];
   let checkinOpen = false;
   let pwMsg = "", pwOk = false;
+  let photoMsg = "";
+  const photoUrls = {};
+  const BUCKET = "progress-photos";
+
+  async function hydratePhotos() {
+    const imgs = [...document.querySelectorAll("img[data-ph]")];
+    const need = [...new Set(imgs.map(i => i.dataset.ph).filter(p => !photoUrls[p]))];
+    if (need.length) {
+      const { data } = await ctx.sb.storage.from(BUCKET).createSignedUrls(need, 3600);
+      (data || []).forEach(x => { if (x.signedUrl) photoUrls[x.path] = x.signedUrl; });
+    }
+    imgs.forEach(i => { const u = photoUrls[i.dataset.ph]; if (u) { i.src = u; const a = i.closest("a"); if (a) a.href = u; } });
+  }
+
+  function resizeImage(file, max) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const s = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => b ? resolve(b) : reject(new Error("Could not read that photo.")), "image/jpeg", 0.82);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read that photo.")); };
+      img.src = url;
+    });
+  }
+
+  async function uploadPhoto(file, angle) {
+    photoMsg = "Uploading " + angle + " photo...";
+    render();
+    try {
+      const blob = await resizeImage(file, 1280);
+      const path = `${ctx.userId}/${realToday}/${angle}-${Date.now()}.jpg`;
+      const { error } = await ctx.sb.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg" });
+      if (error) throw error;
+      const d = dayRec(realToday);
+      d.photos = (d.photos || []).concat({ a: angle, p: path });
+      save(realToday);
+      photoMsg = "Added your " + angle + " photo.";
+    } catch (e) {
+      photoMsg = "Could not upload: " + (e.message || "try again.");
+    }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
+
+  async function deletePhoto(k, path) {
+    const { error } = await ctx.sb.storage.from(BUCKET).remove([path]);
+    if (error) { photoMsg = "Could not delete: " + error.message; }
+    else { const d = dayRec(k); d.photos = (d.photos || []).filter(x => x.p !== path); save(k); photoMsg = "Photo deleted."; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
+
+  function photosSection() {
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    const days = Object.keys(S.days).filter(k => (S.days[k].photos || []).length).sort().reverse();
+    let h = `<h2>Progress photos</h2>`;
+    if (!ctx.readOnly) {
+      h += `<div class="card"><h3>Add today's photos</h3><div class="muted small">Front, side and back. Same spot, same lighting.</div>
+        <div class="btns">${["front", "side", "back"].map(a => `<label class="btn ghost">${cap(a)}<input type="file" accept="image/*" data-ph-angle="${a}" hidden></label>`).join("")}</div>
+        ${photoMsg ? `<div class="muted small" style="margin-top:8px">${esc(photoMsg)}</div>` : ""}</div>`;
+    }
+    if (!days.length) return h + `<div class="card muted">Your photos will show up here.</div>`;
+    return h + days.map(k => `<div class="card"><h3 style="color:var(--ink)">${k === realToday ? "Today" : toDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</h3>
+      <div class="photogrid">${S.days[k].photos.map(p => `<div class="ph"><a target="_blank" rel="noopener"><img data-ph="${esc(p.p)}" alt="${esc(p.a)} photo, ${k}"></a>
+        <div class="phl"><span>${esc(p.a)}</span>${ctx.readOnly ? "" : `<button class="x" data-act="delphoto" data-d="${k}" data-p="${esc(p.p)}" aria-label="Delete photo">&times;</button>`}</div></div>`).join("")}</div></div>`).join("");
+  }
 
   function header(title, sub, back) {
     const isToday = date === realToday;
@@ -170,7 +239,11 @@ window.startClient = function (ctx) {
     }
     h += `</div>`;
 
-    if (F.photoReminder && toDate(date).getDay() === 0) h += `<div class="card note"><div class="eyebrow">Progress photos due</div>Take front, side and back photos in the same spot with the same lighting.</div>`;
+    if (F.photoReminder) {
+      const n = ((S.days[realToday] || {}).photos || []).length;
+      h += `<button class="card" data-go="progress" style="width:100%;text-align:left;font:inherit;color:inherit"><div class="eyebrow" style="margin-bottom:4px">Progress photos</div>
+        <div>${n ? n + " added today" : "Take your front, side and back photos."}</div><div class="muted small" style="margin-top:6px">Add photos &rsaquo;</div></button>`;
+    }
     return h;
   }
 
@@ -317,7 +390,7 @@ window.startClient = function (ctx) {
       <div class="macro"><div class="n">${cur}</div><div class="l">Now</div></div>
       <div class="macro"><div class="n">${(first - cur).toFixed(1).replace(/\.0$/, "")}</div><div class="l">Lbs down</div></div></div>`;
     h += `<h2>Weight</h2><div class="card">${chart(pts)}</div>`;
-    return h + liftHistory();
+    return h + photosSection() + liftHistory();
   }
 
   /* ---------- STREAKS (from Home) ---------- */
@@ -375,6 +448,7 @@ window.startClient = function (ctx) {
     document.getElementById("view").innerHTML = views[tab]();
     const hl = tab === "progress" || tab === "streaks" ? "home" : tab;
     document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === hl));
+    hydratePhotos().catch(() => {});
   }
 
   document.addEventListener("click", e => {
@@ -392,6 +466,7 @@ window.startClient = function (ctx) {
       case "water": d.water = Math.max(0, (d.water || 0) + (+t.dataset.v)); save(); break;
       case "rate": { d.checkin = d.checkin || {}; const k = t.dataset.k, v = +t.dataset.v; d.checkin[k] = d.checkin[k] === v ? null : v; save(); break; }
       case "wtype": d.workout = t.dataset.v; save(); break;
+      case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "ciopen": checkinOpen = true; break;
       case "ciclose": checkinOpen = false; break;
       case "offplan": d.offPlan = d.offPlan || {}; d.offPlan.on = !d.offPlan.on; save(); break;
@@ -419,6 +494,7 @@ window.startClient = function (ctx) {
   document.addEventListener("change", e => {
     if (ctx.readOnly) return;
     const t = e.target;
+    if (t.dataset.phAngle) { const f = t.files && t.files[0]; if (f) uploadPhoto(f, t.dataset.phAngle); t.value = ""; return; }
     const d = dayRec(date);
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
     if (t.dataset.f === "steps") { d.steps = parseInt(t.value, 10) || null; save(); render(); return; }

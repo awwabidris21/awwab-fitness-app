@@ -140,3 +140,9 @@ button.card { display: block; cursor: pointer; }
 .previewbar a { color: #fff; font-weight: 700; text-decoration: underline; white-space: nowrap; }
 body.preview #view { padding-top: 70px; }
 body.preview #sync { display: none; }
+
+.photogrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.ph img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--line); }
+.phl { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--slate); text-transform: capitalize; margin-top: 4px; }
+.phl .x { background: none; border: 0; color: var(--bad); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+label.btn { display: inline-flex; align-items: center; cursor: pointer; }
