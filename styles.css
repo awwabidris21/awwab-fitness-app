@@ -176,3 +176,20 @@ body.results #view { padding-bottom: 40px; }
 
 .macros.four { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 520px) { .macros.four { grid-template-columns: repeat(2, 1fr); } }
+
+/* rest timer */
+#resttimer { position: fixed; left: 12px; right: 12px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--paper); border-radius: 12px; padding: 10px 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); overflow: hidden; }
+#resttimer[hidden] { display: none; }
+#resttimer .rt-l { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+#resttimer .rt-t { font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: 28px; flex: 1; line-height: 1; }
+#resttimer .rt-go { flex: 1; font-weight: 600; }
+#resttimer button { background: rgba(255,255,255,.14); color: inherit; border: 0; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 36px; }
+#resttimer i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--amber); }
+body.dark #resttimer, :root[data-theme="dark"] #resttimer { background: #2A2F3B; }
+/* quick add, week card */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.chipbtn { background: var(--paper); border: 1px solid var(--line); color: var(--ink); border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; min-height: 36px; }
+.wkcard { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 10px; }
+.wk .l { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--slate); }
+.wk .v { font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: 28px; line-height: 1.1; }
+.wk .s { font-size: 12px; color: var(--slate); }

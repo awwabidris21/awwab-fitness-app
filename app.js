@@ -27,6 +27,9 @@ window.startClient = function (ctx) {
       clearTimeout(timer); timer = setTimeout(flush, 5000);
     }
   }
+  window.addEventListener("offline", () => setStatus("Offline. Your changes will save when you're back online."));
+  window.addEventListener("online", () => { setStatus("Back online. Saving..."); flush(); });
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); window.__bip = e; if (typeof render === "function" && tab === "home") render(); });
   const save = k => { if (ctx.readOnly) return; dirty.add(k || date); setStatus("Saving..."); clearTimeout(timer); timer = setTimeout(flush, 600); };
 
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -195,6 +198,14 @@ window.startClient = function (ctx) {
         ${photoMsg ? `<div class="muted small" style="margin-top:8px">${esc(photoMsg)}</div>` : ""}</div>`;
     }
     if (!days.length) return h + `<div class="card muted">Your photos will show up here.</div>`;
+    if (days.length >= 2) {
+      const pick = k => (S.days[k].photos.find(p => p.a === "front") || S.days[k].photos[0]);
+      const first = days[days.length - 1], latest = days[0], p1 = pick(first), p2 = pick(latest);
+      const lab = k => toDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      h += `<div class="card"><h3 style="color:var(--ink)">Then and now</h3><div class="photogrid" style="grid-template-columns:1fr 1fr">
+        <div class="ph"><img data-ph="${esc(p1.p)}" alt="Earliest photo"><div class="phl"><span>${lab(first)}</span></div></div>
+        <div class="ph"><img data-ph="${esc(p2.p)}" alt="Latest photo"><div class="phl"><span>${lab(latest)}</span></div></div></div></div>`;
+    }
     return h + days.map(k => `<div class="card"><h3 style="color:var(--ink)">${k === realToday ? "Today" : toDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</h3>
       <div class="photogrid">${S.days[k].photos.map(p => `<div class="ph"><a target="_blank" rel="noopener"><img data-ph="${esc(p.p)}" alt="${esc(p.a)} photo, ${k}"></a>
         <div class="phl"><span>${esc(p.a)}</span>${ctx.readOnly ? "" : `<button class="x" data-act="delphoto" data-d="${k}" data-p="${esc(p.p)}" aria-label="Delete photo">&times;</button>`}</div></div>`).join("")}</div></div>`).join("");
@@ -246,13 +257,32 @@ window.startClient = function (ctx) {
   }
   const foodRow = (f, src, i) => `<button class="opt" data-act="fpick" data-src="${src}" data-i="${i}"><strong>${esc(f.n)}</strong><span class="muted small"> ${Math.round(f.k)} cal, P ${r1(f.p)} / F ${r1(f.f)} / C ${r1(f.c)} per 100 g</span></button>`;
   function foodResults() {
-    if (!fs.q.trim()) return `<div class="muted small">Type a food, then tap it and enter how much you ate.</div>`;
+    if (!fs.q.trim()) return quickAdd();
     const loc = localFoods(fs.q);
     let h = loc.map((f, i) => foodRow(f, "l", i)).join("");
     h += fs.off.map((f, i) => foodRow(f, "o", i)).join("");
     if (!loc.length && !fs.off.length && !fs.busy) h += `<div class="muted small" style="margin-bottom:8px">Not in the common list.</div>`;
     h += fs.busy ? `<div class="muted small">Searching the food database...</div>` : `<button class="linkbtn" data-act="foff">Search more foods and brands</button>`;
     if (fs.offMsg) h += `<div class="muted small">${esc(fs.offMsg)}</div>`;
+    return h;
+  }
+  function recentFoods() {
+    const seen = new Set(), out = [];
+    Object.keys(S.days).filter(k => k <= date).sort().reverse().forEach(k => (S.days[k].foods || []).slice().reverse().forEach(x => {
+      const key = x.n + "|" + x.cal; if (!seen.has(key) && out.length < 6) { seen.add(key); out.push(x); }
+    }));
+    return out;
+  }
+  function yesterdayFoods() {
+    const x = toDate(date); x.setDate(x.getDate() - 1);
+    return (S.days[iso(x)] || {}).foods || [];
+  }
+  function quickAdd() {
+    if (ctx.readOnly) return `<div class="muted small">Type a food, then tap it and enter how much you ate.</div>`;
+    const y = yesterdayFoods(), r = recentFoods();
+    let h = `<div class="muted small">Type a food, then tap it and enter how much you ate.</div>`;
+    if (y.length) h += `<button class="opt" style="margin-top:10px" data-act="frepeat"><strong>Repeat yesterday's foods</strong><span class="muted small"> ${y.length} item${y.length > 1 ? "s" : ""}, ${y.reduce((a, f) => a + (+f.cal || 0), 0)} cal</span></button>`;
+    if (r.length) h += `<label class="field" style="margin-top:12px">Recent</label><div class="chips">` + r.map((f, i) => `<button class="chipbtn" data-act="frecent" data-i="${i}">${esc(f.n.length > 26 ? f.n.slice(0, 25) + "..." : f.n)} <span class="muted small">${Math.round(f.cal)}</span></button>`).join("") + `</div>`;
     return h;
   }
   function foodUnits(f) { return [["g", 1], ["oz", OZ]].concat(f.u || []); }
@@ -339,6 +369,32 @@ window.startClient = function (ctx) {
   const rate = (d, key, label) => { const ci = d.checkin || {}; return `<div class="field">${label}</div><div class="rate">${[1, 2, 3, 4, 5].map(n => `<button data-act="rate" data-k="${key}" data-v="${n}" class="${ci[key] === n ? "on" : ""}">${n}</button>`).join("")}</div>`; };
 
   /* ---------- HOME ---------- */
+  function weekCard() {
+    const end = toDate(date), ks = [];
+    for (let i = 6; i >= 0; i--) { const x = new Date(end); x.setDate(x.getDate() - i); ks.push(iso(x)); }
+    const recs = ks.map(k => S.days[k] || {});
+    if (recs.filter(r => r.weight || r.steps || r.sleepHrs || (r.foods || []).length || (r.water || 0) > 0 || r.checkin).length < 3) return "";
+    const avgOf = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+    const sched = ks.filter(k => k >= C.startDate && workoutFor(k) !== "Rest");
+    const trained = ks.filter(k => k >= C.startDate && dayLifted(k)).length;
+    const steps = recs.map(r => r.steps).filter(Boolean), sl = recs.map(r => r.sleepHrs).filter(Boolean);
+    const cis = recs.filter(r => checkinDone(r)).length;
+    const cell = (l, v, s) => `<div class="wk"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    return `<h2>Last 7 days</h2><div class="card wkcard">
+      ${cell("Workouts", sched.length || trained ? trained + "/" + Math.max(sched.length, trained) : "-", "sessions done")}
+      ${cell("Steps", steps.length ? Math.round(avgOf(steps)).toLocaleString() : "-", "daily average")}
+      ${cell("Sleep", sl.length ? (Math.round(avgOf(sl) * 10) / 10) + " h" : "-", "nightly average")}
+      ${cell("Check-ins", cis + "/7", "days done")}</div>`;
+  }
+  function installCard() {
+    if (ctx.readOnly) return "";
+    let dismissed = false; try { dismissed = localStorage.getItem("installHint") === "1"; } catch (e) {}
+    const standalone = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone;
+    if (dismissed || standalone) return "";
+    if (window.__bip) return `<div class="card note"><div class="eyebrow">Install the app</div>Add Awwab Fitness to your home screen so it opens like a normal app.<div class="btns"><button class="btn" data-act="installgo">Install</button><button class="btn ghost" data-act="installx">Not now</button></div></div>`;
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) return `<div class="card note"><div class="eyebrow">Add to your home screen</div>Tap the Share button in Safari, then <strong>Add to Home Screen</strong>. It opens full screen like a normal app and keeps you logged in.<div class="btns"><button class="btn ghost" data-act="installx">Got it</button></div></div>`;
+    return "";
+  }
   function viewHome() {
     const d = dayRec(date);
     const done = consumed(d);
@@ -349,6 +405,7 @@ window.startClient = function (ctx) {
     const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
     const first = C.name || "";
     let h = header(date === realToday ? `${greet}, ${first}` : toDate(date).toLocaleDateString(undefined, { weekday: "long" }), niceDate(date));
+    h += installCard();
 
     h += `<div class="duo" style="margin-top:16px">
       ${F.streaks ? `<button class="card streakcard" data-go="streaks" aria-label="See your streaks"><div class="flame">${flame}</div><div class="big">${streak()}</div><div class="muted small">day streak</div><div class="muted small">Best ${bestStreak()}</div></button>` : ""}
@@ -378,6 +435,7 @@ window.startClient = function (ctx) {
       ${tile("nutrition", "Water", w + " oz", "of " + T.water + " oz", pctOf(w, T.water))}
     </div>`;
 
+    h += weekCard();
     if (C.coachNote) h += `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>`;
 
     h += `<h2>Log your day</h2><div class="card"><div class="grid2">
@@ -471,11 +529,12 @@ window.startClient = function (ctx) {
       h += exs.map((ex, xi) => {
         const rec = (S.lifts[date] || {})[ex] || [];
         let rows = "";
+        const pds = prevSessions(ex), pset = pds.length ? loggedSets(pds[pds.length - 1], ex) : [];
         for (let s = 0; s < C.sets; s++) {
-          const v = rec[s] || {};
+          const v = rec[s] || {}, pv = pset[s] || pset[pset.length - 1] || {};
           rows += `<div class="sn">${s + 1}</div>
-            <input type="number" inputmode="decimal" placeholder="lbs" data-lift="${xi}" data-set="${s}" data-fld="w" value="${v.w || ""}" aria-label="${esc(ex)} set ${s + 1} weight">
-            <input type="number" inputmode="numeric" placeholder="reps" data-lift="${xi}" data-set="${s}" data-fld="r" value="${v.r || ""}" aria-label="${esc(ex)} set ${s + 1} reps">`;
+            <input type="number" inputmode="decimal" placeholder="${esc(pv.w || "lbs")}" data-lift="${xi}" data-set="${s}" data-fld="w" value="${v.w || ""}" aria-label="${esc(ex)} set ${s + 1} weight">
+            <input type="number" inputmode="numeric" placeholder="${esc(pv.r || "reps")}" data-lift="${xi}" data-set="${s}" data-fld="r" value="${v.r || ""}" aria-label="${esc(ex)} set ${s + 1} reps">`;
         }
         const last = lastSession(ex), hint = hintFor(ex);
         return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3>${prBadge(ex)}</div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
@@ -498,7 +557,7 @@ window.startClient = function (ctx) {
       <div class="macros">${mac("Protein", done.p, T.protein, "g")}${mac("Carbs", done.c, T.carbs, "g")}${mac("Fat", done.f, T.fat, "g")}</div>`;
     h += `<h2>Water</h2><div class="card"><div class="rowline"><span class="big">${w}<span class="muted small"> / ${T.water} oz</span></span></div>
       <div class="bar ${w >= T.water ? "good" : ""}"><i style="width:${pctOf(w, T.water)}%"></i></div>
-      <div class="btns"><button class="btn" data-act="water" data-v="8">+ 8 oz</button><button class="btn ghost" data-act="water" data-v="-8">- 8 oz</button></div></div>`;
+      <div class="btns"><button class="btn" data-act="water" data-v="8">+ 8 oz</button><button class="btn" data-act="water" data-v="16">+ 16 oz</button><button class="btn" data-act="water" data-v="32">+ 32 oz</button><button class="btn ghost" data-act="water" data-v="-8">- 8 oz</button></div></div>`;
     h += `<h2>How your numbers work</h2>` + (C.plan || []).filter(s => /nutrition|daily/i.test(s.h)).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
     h += `<div class="muted small">Fat target is about ${T.fat}g. The ceiling is ${T.fatCeiling}g, and it's fine to land under it.</div>`;
     return h;
@@ -568,7 +627,8 @@ window.startClient = function (ctx) {
       <label class="field" for="pw1">New password (8 or more characters)</label><input id="pw1" type="password" autocomplete="new-password">
       <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
       ${pwMsg ? `<div class="${pwOk ? "muted" : "err"} small" style="margin-top:8px">${esc(pwMsg)}</div>` : ""}
-      <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>`;
+      <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>
+      <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
     return h;
   }
@@ -668,6 +728,41 @@ window.startClient = function (ctx) {
     return h + (rows || `<div class="muted">Your weekly scores will show up here.</div>`) + `</div>`;
   }
 
+  /* ---------- rest timer ---------- */
+  const restOn = () => { try { return localStorage.getItem("restTimer") !== "off"; } catch (e) { return true; } };
+  const rest = { end: 0, total: 0, iv: null, done: false };
+  function restEl() {
+    let el = document.getElementById("resttimer");
+    if (!el) { el = document.createElement("div"); el.id = "resttimer"; el.hidden = true; document.body.appendChild(el); }
+    return el;
+  }
+  function restDraw() {
+    const el = restEl(), left = Math.max(0, Math.ceil((rest.end - Date.now()) / 1000));
+    if (rest.done) { el.innerHTML = `<span class="rt-go">Rest over. Next set!</span><button data-act="restskip">Dismiss</button>`; return; }
+    const m = Math.floor(left / 60), s = String(left % 60).padStart(2, "0");
+    el.innerHTML = `<span class="rt-l">Rest</span><span class="rt-t">${m}:${s}</span><button data-act="restminus">-15s</button><button data-act="restplus">+15s</button><button data-act="restskip">Skip</button>
+      <i style="width:${rest.total ? Math.round((1 - left / rest.total) * 100) : 0}%"></i>`;
+  }
+  function restStop() { clearInterval(rest.iv); rest.iv = null; rest.done = false; restEl().hidden = true; }
+  function restBeep() {
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const c = new AC(), o = c.createOscillator(), g = c.createGain();
+      o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.08; o.start(); o.stop(c.currentTime + 0.35);
+    } catch (e) {}
+  }
+  function restStart(sec) {
+    if (ctx.readOnly || !restOn()) return;
+    rest.total = sec; rest.end = Date.now() + sec * 1000; rest.done = false;
+    restEl().hidden = false; restDraw();
+    clearInterval(rest.iv);
+    rest.iv = setInterval(() => {
+      if (Date.now() >= rest.end) { clearInterval(rest.iv); rest.done = true; restDraw(); restBeep(); setTimeout(() => { if (rest.done) restStop(); }, 6000); }
+      else restDraw();
+    }, 500);
+  }
+
   /* ---------- render & events ---------- */
   function render() {
     if (tab === "meals") loadSaved();
@@ -689,6 +784,12 @@ window.startClient = function (ctx) {
     }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
     if (t.dataset.act === "tocoach") { ctx.switchToCoach(); return; }
+    if (t.dataset.act === "restskip") { restStop(); return; }
+    if (t.dataset.act === "restplus") { rest.end += 15000; rest.total += 15; restDraw(); return; }
+    if (t.dataset.act === "restminus") { rest.end = Math.max(Date.now() + 1000, rest.end - 15000); restDraw(); return; }
+    if (t.dataset.act === "installx") { try { localStorage.setItem("installHint", "1"); } catch (e) {} render(); return; }
+    if (t.dataset.act === "installgo") { if (window.__bip) { window.__bip.prompt(); window.__bip = null; } render(); return; }
+    if (t.dataset.act === "resttoggle") { try { localStorage.setItem("restTimer", restOn() ? "off" : "on"); } catch (e) {} if (!restOn()) restStop(); render(); return; }
     if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }
@@ -727,6 +828,8 @@ window.startClient = function (ctx) {
         ctx.sb.from("saved_meals").delete().eq("id", id).then(() => {});
         break;
       }
+      case "frepeat": { d.foods = (d.foods || []).concat(yesterdayFoods().map(f => Object.assign({}, f))); save(); break; }
+      case "frecent": { const f = recentFoods()[+t.dataset.i]; if (!f) return; d.foods = d.foods || []; d.foods.push(Object.assign({}, f)); save(); break; }
       case "fmopen": fs.manual = true; fs.sel = null; break;
       case "fmclose": fs.manual = false; fs.man = {}; break;
       case "fmadd": {
@@ -801,6 +904,7 @@ window.startClient = function (ctx) {
       const s = +t.dataset.set;
       arr[s] = arr[s] || {};
       arr[s][t.dataset.fld] = t.value;
+      if (t.dataset.fld === "r" && t.value) restStart(C.restSec || 90);
       save();
       const y = window.scrollY; render(); window.scrollTo(0, y);
     }

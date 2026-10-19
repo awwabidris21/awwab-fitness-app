@@ -30,6 +30,69 @@ window.startCoach = function (ctx) {
     msgs = {}; ((m && m.data) || []).forEach(x => { (msgs[x.client_id] = msgs[x.client_id] || []).push(x); });
   }
 
+  /* ---------- export & backup ---------- */
+  function download(name, text, mime) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: mime || "text/plain" }));
+    a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  async function fetchAll(table, cols, build) {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      let q = sb.from(table).select(cols);
+      if (build) q = build(q);
+      const { data, error } = await q.range(from, from + 999);
+      if (error) throw error;
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  }
+  const csvCell = v => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function dayCalories(cfg, d) {
+    let t = { cal: 0, p: 0, f: 0, c: 0 };
+    (cfg.meals || []).forEach((m, i) => {
+      if (!(d.meals || [])[i]) return;
+      const v = (d.mv || {})[i];
+      let x = m;
+      if (v === "c") x = (d.custom || {})[i] || {};
+      else if (v >= 1 && m.swaps && m.swaps[v - 1]) x = m.swaps[v - 1];
+      t.cal += +x.cal || 0; t.p += +x.p || 0; t.f += +x.f || 0; t.c += +x.c || 0;
+    });
+    (d.foods || []).forEach(x => { t.cal += +x.cal || 0; t.p += +x.p || 0; t.f += +x.f || 0; t.c += +x.c || 0; });
+    return t;
+  }
+  async function exportCsv(id) {
+    const c = clients.find(x => x.id === id), cfg = configs[id] || {};
+    notice = "Preparing the download..."; render(true);
+    try {
+      const rows = await fetchAll("day_logs", "log_date,day,lifts", q => q.eq("user_id", id).order("log_date", { ascending: true }));
+      const head = ["date", "weight_lbs", "steps", "water_oz", "sleep_hours", "nutrition_1to5", "intensity_1to5", "sleep_1to5", "hunger", "energy", "calories", "protein_g", "carbs_g", "fat_g", "session", "lifts", "off_plan", "note"];
+      const lines = [head.join(",")];
+      rows.forEach(r => {
+        const d = r.day || {}, ck = d.checkin || {}, t = dayCalories(cfg, d);
+        const lifts = Object.keys(r.lifts || {}).map(ex => ex + ": " + (r.lifts[ex] || []).filter(s => s && s.r).map(s => (s.w || "?") + "x" + s.r).join(" ")).filter(x => !/: $/.test(x)).join("; ");
+        lines.push([r.log_date, d.weight, d.steps, d.water, d.sleepHrs, ck.n, ck.i, ck.s, ck.h, ck.e, t.cal || "", t.cal ? Math.round(t.p) : "", t.cal ? Math.round(t.c) : "", t.cal ? Math.round(t.f) : "", d.workout || sessionName(cfg, r.log_date, d), lifts, d.offPlan && d.offPlan.on ? "yes" : "", (d.offPlan && d.offPlan.note) || d.msg || ""].map(csvCell).join(","));
+      });
+      download(((c && c.name) || "client").toLowerCase().replace(/\s+/g, "-") + "-data-" + today + ".csv", lines.join("\n"), "text/csv");
+      notice = "Downloaded " + rows.length + " days of data.";
+    } catch (e) { notice = "Couldn't download: " + (e.message || e); }
+    render(true);
+  }
+  async function backupAll() {
+    notice = "Preparing your backup..."; render(true);
+    try {
+      const [profiles, client_config, day_logs, messages] = await Promise.all([
+        fetchAll("profiles", "*", q => q.order("id")), fetchAll("client_config", "*", q => q.order("user_id")),
+        fetchAll("day_logs", "*", q => q.order("log_date")), fetchAll("messages", "*", q => q.order("id"))
+      ]);
+      download("awwab-fitness-backup-" + today + ".json", JSON.stringify({ exported: new Date().toISOString(), profiles, client_config, day_logs, messages }, null, 1), "application/json");
+      notice = "Backup downloaded: " + day_logs.length + " daily logs, " + messages.length + " messages, " + client_config.length + " plans. Keep the file somewhere safe.";
+    } catch (e) { notice = "Couldn't make the backup: " + (e.message || e); }
+    render(true);
+  }
+
   /* ---------- data helpers ---------- */
   const rec = (id, k) => (logs[id] && logs[id][k]) || { day: {}, lifts: {} };
   const scoreOf = d => { const c = d.checkin || {}; return c.n && c.i && c.s ? c : null; };
@@ -225,6 +288,16 @@ window.startCoach = function (ctx) {
       h += `<div class="card" style="margin-top:16px"><h3>No clients yet</h3>
         <div>Add a client in Supabase: <b>Authentication, Users, Add user</b>. Use their email and a password you give them, and check "Auto Confirm User". Once they log in to the app for the first time, they show up here.</div></div>`;
     }
+    if (clients.length) {
+      const live = clients.filter(x => configs[x.id] && configs[x.id].meals);
+      const n = fn => live.filter(fn).length;
+      const unread = live.reduce((a, x) => a + unreadFrom(x.id).length, 0);
+      const quiet = live.filter(x => !Object.keys(logs[x.id] || {}).some(k => k >= iso(daysAgo(2)) && (logs[x.id][k].day.weight || logs[x.id][k].day.steps || (logs[x.id][k].day.foods || []).length || scoreOf(logs[x.id][k].day))));
+      const attn = live.filter(x => flagsFor(x.id).length || quiet.includes(x));
+      const cell = (l, v, s) => `<div class="wk"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+      h += `<div class="card wkcard" style="margin-top:16px">${cell("Weighed in", n(x => rec(x.id, today).day.weight) + "/" + live.length, "today")}${cell("Checked in", n(x => scoreOf(rec(x.id, today).day)) + "/" + live.length, "today")}${cell("Messages", unread, "unread")}${cell("Quiet", quiet.length, "no log in 2 days")}</div>`;
+      if (attn.length) h += `<div class="card note"><div class="eyebrow">Needs your attention</div>${attn.map(x => esc(x.name || "Client") + (quiet.includes(x) ? " (quiet)" : "")).join(", ")}</div>`;
+    }
     h += clients.map(c => {
       const cfg = configs[c.id];
       const r = rec(c.id, today), d = r.day;
@@ -244,6 +317,8 @@ window.startCoach = function (ctx) {
         <div class="muted small">${lw ? "Last weigh-in " + esc(lw.w) + " lbs (" + short(lw.k) + ")" : "No weigh-ins yet"}</div>${status}
         ${f.map(x => `<span class="flag">${esc(x)}</span>`).join("")}${sheet}</div>`;
     }).join("");
+    h += `<h2>Your data</h2><div class="card"><div class="muted small">Supabase's free plan has no automatic backups. Download a copy of everything every week or two and keep it somewhere safe.</div>
+      <div class="btns"><button class="btn" data-c="backup">Download backup (all clients)</button></div></div>`;
     return h;
   }
 
@@ -267,6 +342,7 @@ window.startCoach = function (ctx) {
     const A = "text-decoration:none;display:inline-flex;align-items:center";
     h += `<div class="btns"><a class="btn" style="${A}" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a><a class="btn ghost" style="${A}" href="?results=${encodeURIComponent(selected)}">Results page</a></div>`;
     h += sheetHtml(selected);
+    h += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${esc(c.name || "client")}'s data (CSV)</button></div>`;
 
     // messages
     h += `<h2>Messages</h2><div class="card">${threadHtml(selected)}<label class="field" for="reply-box" style="margin-top:12px">Reply</label><textarea id="reply-box" placeholder="Write to ${esc(c.name || "your client")}. They see it in the app."></textarea>
@@ -391,6 +467,8 @@ window.startCoach = function (ctx) {
     const a = t.dataset.c;
     if (a === "logout") { ctx.logout(); return; }
     if (a === "myapp") { ctx.switchToMe(); return; }
+    if (a === "backup") { backupAll(); return; }
+    if (a === "exportcsv") { exportCsv(selected); return; }
     if (a === "back") { selected = null; notice = ""; render(); return; }
     if (a === "open") { openClient(t.dataset.id); return; }
     if (a === "copysheet") {
