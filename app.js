@@ -198,7 +198,7 @@ window.startClient = function (ctx) {
 
   /* ---------- food search & logging ---------- */
   const OZ = 28.3495;
-  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "" };
+  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {} };
   const r1 = v => Math.round(v * 10) / 10;
   function localFoods(q) {
     const words = q.toLowerCase().split(/[\s,]+/).filter(Boolean);
@@ -239,6 +239,16 @@ window.startClient = function (ctx) {
       <div class="btns">${ctx.readOnly ? `<div class="muted small" style="margin-right:8px;align-self:center">Preview only: adding is turned off.</div>` : `<button class="btn" data-act="fadd">Add to today</button>`}<button class="btn ghost" data-act="fcancel">Cancel</button></div></div>`;
   }
   const titleCase = t => String(t || "").toLowerCase().replace(/(^|[\s(\/-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  function manualPanel() {
+    if (ctx.readOnly) return "";
+    if (!fs.manual) return `<button class="linkbtn" data-act="fmopen">Enter calories and macros yourself</button>`;
+    const m = fs.man, fld = (k, label, ph) => `<div><label class="field">${label}</label><input type="number" inputmode="decimal" data-f="fm" data-k="${k}" value="${esc(m[k] == null ? "" : m[k])}" placeholder="${ph || ""}"></div>`;
+    return `<div class="swappanel" style="margin:12px 0 0;border-top:1px solid var(--line);padding-top:12px"><h3 style="color:var(--ink)">Enter it yourself</h3>
+      <label class="field" for="fmn">What was it?</label><input id="fmn" type="text" data-f="fm" data-k="n" value="${esc(m.n || "")}" placeholder="e.g. Protein bar">
+      <div class="grid2" style="margin-top:8px">${fld("cal", "Calories", "or leave blank")}${fld("p", "Protein (g)")}${fld("c", "Carbs (g)")}${fld("f", "Fat (g)")}</div>
+      <div class="muted small" style="margin-top:6px">Copy these from the label. If you leave calories blank, they're worked out from the macros.</div>
+      <div class="btns"><button class="btn" data-act="fmadd">Add to today</button><button class="btn ghost" data-act="fmclose">Cancel</button></div></div>`;
+  }
   async function searchOff() {
     const q = fs.q.trim();
     if (!q || fs.busy) return;
@@ -268,7 +278,7 @@ window.startClient = function (ctx) {
     let h = `<h2>Log a food</h2><div class="card">`;
     {
       h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
-        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}`;
+        <div id="fres" style="margin-top:10px">${foodResults()}</div>${foodPanel()}${manualPanel()}`;
     }
     if (list.length) {
       h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + list.map((x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button>`}</div>`).join("") + `</div>`;
@@ -464,8 +474,9 @@ window.startClient = function (ctx) {
       let h = header("Food log", niceDate(date));
       h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
         <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-        <div class="rowline" style="margin-top:10px"><span>Protein <strong>${r1(done.p)}</strong> / ${T.protein}g</span><span>Carbs <strong>${r1(done.c)}</strong> / ${T.carbs}g</span><span>Fat <strong>${r1(done.f)}</strong> / ${T.fat}g</span></div>
         <div class="muted small" style="margin-top:8px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
+      const mac = (label, v, t) => `<div class="macro"><div class="n">${r1(v)}g</div><div class="l">${label}</div><div class="t">of ${t}g</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
+      h += `<div class="macros">${mac("Protein", done.p, T.protein)}${mac("Carbs", done.c, T.carbs)}${mac("Fat", done.f, T.fat)}</div>`;
       return h + foodCard(d);
     }
     let h = header("Meal plan", niceDate(date));
@@ -646,8 +657,18 @@ window.startClient = function (ctx) {
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
-      case "fpick": { const src = t.dataset.src, i = +t.dataset.i; const list = src === "l" ? localFoods(fs.q) : fs.off; fs.sel = list[i] || null; fs.unit = "g"; fs.amt = ""; break; }
+      case "fpick": { const src = t.dataset.src, i = +t.dataset.i; const list = src === "l" ? localFoods(fs.q) : fs.off; fs.sel = list[i] || null; fs.unit = "g"; fs.amt = ""; fs.manual = false; break; }
       case "fcancel": fs.sel = null; break;
+      case "fmopen": fs.manual = true; fs.sel = null; break;
+      case "fmclose": fs.manual = false; fs.man = {}; break;
+      case "fmadd": {
+        const m = fs.man, p = +m.p || 0, c = +m.c || 0, f = +m.f || 0;
+        const cal = m.cal !== "" && m.cal != null && !isNaN(+m.cal) ? Math.round(+m.cal) : Math.round(p * 4 + c * 4 + f * 9);
+        if (!cal && !p && !c && !f) return;
+        d.foods = d.foods || [];
+        d.foods.push({ n: (m.n || "").trim() || "Quick add", amt: "entered by hand", g: 0, cal, p: r1(p), f: r1(f), c: r1(c) });
+        fs.manual = false; fs.man = {}; save(); break;
+      }
       case "foff": searchOff(); return;
       case "fadd": {
         const x = foodCalc(); if (!x) return;
@@ -679,6 +700,7 @@ window.startClient = function (ctx) {
   document.addEventListener("input", e => {
     const t = e.target;
     if (t.dataset.f === "fq") { fs.q = t.value; fs.off = []; fs.offMsg = ""; refreshFood(); }
+    else if (t.dataset.f === "fm") { fs.man[t.dataset.k] = t.dataset.k === "n" ? t.value : t.value; }
     else if (t.dataset.f === "famt") { fs.amt = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); }
   });
   document.addEventListener("keydown", e => {
