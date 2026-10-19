@@ -88,9 +88,27 @@
     ]);
     if (!cfg.data || !cfg.data.config || !cfg.data.config.meals) return message("No plan yet", "This client doesn't have a plan set up yet.");
     document.body.classList.add("preview");
-    document.body.insertAdjacentHTML("afterbegin", `<div class="previewbar"><span>Preview: ${esc((who.data && who.data.name) || "client")} (read only)</span><a href="${esc(location.pathname)}">Back to coach view</a></div>`);
+    document.body.insertAdjacentHTML("afterbegin", `<div class="previewbar"><span>Preview: ${esc((who.data && who.data.name) || "client")} (read only)</span><a href="${esc(location.pathname)}?coach=1">Back to coach view</a></div>`);
     tabs.style.display = "";
-    startClient({ sb, userId: id, readOnly: true, config: cfg.data.config, logs: logs.data || [], messages: msgs.data || [], logout: () => { location.href = location.pathname; } });
+    startClient({ sb, userId: id, readOnly: true, config: cfg.data.config, logs: logs.data || [], messages: msgs.data || [], logout: () => { location.href = location.pathname + "?coach=1"; } });
+  }
+
+  async function startOwn(user, ctx) {
+    const [cfg, logs, msgs] = await Promise.all([
+      sb.from("client_config").select("config").eq("user_id", user.id).maybeSingle(),
+      sb.from("day_logs").select("log_date,day,lifts").eq("user_id", user.id),
+      sb.from("messages").select("id,sender,body,created_at,read").eq("client_id", user.id).order("created_at", { ascending: true })
+    ]);
+    if (!cfg.data || !cfg.data.config || !cfg.data.config.meals) {
+      tabs.style.display = "none";
+      view.innerHTML = `<div class="login"><div class="eyebrow">Awwab Fitness</div><h1>Your own plan isn't set up yet</h1><p class="muted">Ask Claude to load your plan, then come back here.</p>
+        <div class="btns"><button class="btn" id="tc">Back to coach view</button></div></div>`;
+      document.getElementById("tc").onclick = ctx.switchToCoach;
+      return;
+    }
+    ctx.config = cfg.data.config; ctx.logs = logs.data || []; ctx.messages = msgs.data || []; ctx.isSelf = true;
+    tabs.style.display = "";
+    startClient(ctx);
   }
 
   async function boot() {
@@ -110,6 +128,16 @@
       const qs = new URLSearchParams(location.search);
       if (qs.get("preview")) return preview(qs.get("preview"), ctx);
       if (qs.get("results")) { tabs.style.display = "none"; return startResults(ctx, qs.get("results")); }
+      // Coaches can also use the app for themselves ("My app"); the choice is remembered on this device.
+      let mode = "coach";
+      try { mode = localStorage.getItem("coachMode") || "coach"; } catch (e) {}
+      if (qs.get("me") === "1") mode = "me"; else if (qs.get("coach") === "1") mode = "coach";
+      try { localStorage.setItem("coachMode", mode); } catch (e) {}
+      if (qs.has("me") || qs.has("coach")) history.replaceState(null, "", location.pathname);
+      const go = m => { try { localStorage.setItem("coachMode", m); } catch (e) {} location.href = location.pathname; };
+      ctx.switchToMe = () => go("me");
+      ctx.switchToCoach = () => go("coach");
+      if (mode === "me") return startOwn(user, ctx);
       tabs.style.display = "none"; return startCoach(ctx);
     }
 

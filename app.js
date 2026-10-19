@@ -513,14 +513,14 @@ window.startClient = function (ctx) {
   /* ---------- NOTES ---------- */
   function viewNotes() {
     const d = dayRec(date);
-    let h = header("Notes", "From your coach");
-    h += C.coachNote ? `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>` : `<div class="card muted" style="margin-top:16px">No note from your coach today.</div>`;
+    let h = header("Notes", ctx.isSelf ? "Your plan" : "From your coach");
+    if (!ctx.isSelf) h += C.coachNote ? `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>` : `<div class="card muted" style="margin-top:16px">No note from your coach today.</div>`;
     if (F.weeklyReview && C.weeklyReview) {
       const r = C.weeklyReview;
       h += `<h2>${esc(r.title)}</h2><div class="card"><h3>Wins</h3><div>${esc(r.wins)}</div><h3 style="margin-top:12px">Focus this week</h3><div>${esc(r.focus)}</div></div>`;
     }
     const fmt = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    h += `<h2>Messages</h2><div class="card"><div class="thread">${msgs.length ? msgs.map(m => `<div class="bub ${m.sender}">${esc(m.body)}<div class="bt">${m.sender === "coach" ? "Coach" : "You"} &middot; ${esc(fmt(m.created_at))}</div></div>`).join("") : `<div class="muted small">No messages yet.${ctx.readOnly ? "" : " Ask your coach anything."}</div>`}</div>
+    if (!ctx.isSelf) h += `<h2>Messages</h2><div class="card"><div class="thread">${msgs.length ? msgs.map(m => `<div class="bub ${m.sender}">${esc(m.body)}<div class="bt">${m.sender === "coach" ? "Coach" : "You"} &middot; ${esc(fmt(m.created_at))}</div></div>`).join("") : `<div class="muted small">No messages yet.${ctx.readOnly ? "" : " Ask your coach anything."}</div>`}</div>
       ${ctx.readOnly ? "" : `<label class="field" for="msgbox" style="margin-top:12px">Message your coach</label><textarea id="msgbox" placeholder="Type here. Hunger, sore, travel, questions. Your coach sees it."></textarea>
         ${msgNote ? `<div class="muted small" style="margin-top:6px">${esc(msgNote)}</div>` : ""}<div class="btns"><button class="btn" data-act="sendmsg">Send</button></div>`}</div>`;
     h += `<h2>Plan notes</h2>` + (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
@@ -530,7 +530,7 @@ window.startClient = function (ctx) {
       <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
       ${pwMsg ? `<div class="${pwOk ? "muted" : "err"} small" style="margin-top:8px">${esc(pwMsg)}</div>` : ""}
       <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>`;
-    h += `<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="logout">Log out</button></div>`;
+    h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
     return h;
   }
 
@@ -643,6 +643,7 @@ window.startClient = function (ctx) {
       return;
     }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
+    if (t.dataset.act === "tocoach") { ctx.switchToCoach(); return; }
     if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }

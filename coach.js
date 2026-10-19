@@ -205,7 +205,7 @@ window.startCoach = function (ctx) {
   /* ---------- views ---------- */
   function topbar(title, sub, back) {
     return `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
-      <div class="btns" style="margin:0">${back ? `<button class="btn ghost" data-c="back">Back</button>` : ""}<button class="btn ghost" data-c="logout">Log out</button></div></div>`;
+      <div class="btns" style="margin:0">${back ? `<button class="btn ghost" data-c="back">Back</button>` : ""}<button class="btn ghost" data-c="myapp">My app</button><button class="btn ghost" data-c="logout">Log out</button></div></div>`;
   }
 
   function sheetHtml(id) {
@@ -387,6 +387,7 @@ window.startCoach = function (ctx) {
     if (!t) return;
     const a = t.dataset.c;
     if (a === "logout") { ctx.logout(); return; }
+    if (a === "myapp") { ctx.switchToMe(); return; }
     if (a === "back") { selected = null; notice = ""; render(); return; }
     if (a === "open") { openClient(t.dataset.id); return; }
     if (a === "copysheet") {
