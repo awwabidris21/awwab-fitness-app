@@ -73,6 +73,7 @@ window.startClient = function (ctx) {
   const loggedSets = (k, ex) => ((S.lifts[k] || {})[ex] || []).filter(s => s && s.r);
   const workoutDone = (k, name) => (C.workouts[name] || []).every(ex => loggedSets(k, ex).length > 0);
 
+  const SLEEP_STREAK_FROM = "2026-10-20";
   function tasks(k) {
     const d = peek(k);
     const t = [
@@ -82,6 +83,8 @@ window.startClient = function (ctx) {
       { label: "Steps", done: !!d.steps },
       { label: "Check-in", done: checkinDone(d) }
     ];
+    // Sleep counts toward the streak from this date on, so nobody's earlier streak is affected.
+    if (F.sleepLog !== false && k >= SLEEP_STREAK_FROM) t.splice(4, 0, { label: "Sleep", done: !!d.sleepHrs });
     const wk = workoutFor(k);
     if (wk !== "Rest") t.push({ label: wk, done: workoutDone(k, wk) });
     return t;
