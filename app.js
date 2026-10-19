@@ -84,6 +84,32 @@ window.startClient = function (ctx) {
   let checkinOpen = false;
   let pwMsg = "", pwOk = false;
   let photoMsg = "";
+  let swapOpen = {};
+  let msgs = (ctx.messages || []).slice();
+  const unreadCoach = () => msgs.filter(m => m.sender === "coach" && !m.read).length;
+  function updateDot() { const b = document.querySelector('#tabs [data-tab="notes"]'); if (b) b.classList.toggle("has-dot", unreadCoach() > 0); }
+  async function refreshMsgs() {
+    const { data } = await ctx.sb.from("messages").select("id,sender,body,created_at,read").eq("client_id", ctx.userId).order("created_at", { ascending: true });
+    if (data) msgs = data;
+    updateDot();
+  }
+  async function markRead() {
+    if (ctx.readOnly) return;
+    const ids = msgs.filter(m => m.sender === "coach" && !m.read).map(m => m.id);
+    if (!ids.length) return;
+    await ctx.sb.from("messages").update({ read: true }).in("id", ids);
+    msgs.forEach(m => { if (ids.includes(m.id)) m.read = true; });
+    updateDot();
+  }
+  async function sendMsg() {
+    const ta = document.getElementById("msgbox");
+    const body = ((ta && ta.value) || "").trim();
+    if (!body) return;
+    const { data, error } = await ctx.sb.from("messages").insert({ client_id: ctx.userId, sender: "client", body }).select("id,sender,body,created_at,read").single();
+    if (error) { msgNote = "Could not send. Try again."; } else { msgs.push(data); msgNote = "Sent."; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
+  let msgNote = "";
   const photoUrls = {};
   const BUCKET = "progress-photos";
 
@@ -161,7 +187,13 @@ window.startClient = function (ctx) {
       <div class="datenav"><button data-act="prev" aria-label="Previous day">&lsaquo;</button><button data-act="next" aria-label="Next day" ${isToday ? "disabled" : ""}>&rsaquo;</button></div></div>`;
   }
 
-  const consumed = d => C.meals.reduce((a, m, i) => d.meals[i] ? { p: a.p + m.p, f: a.f + m.f, c: a.c + m.c, cal: a.cal + m.cal } : a, { p: 0, f: 0, c: 0, cal: 0 });
+  function mealVariant(m, i, d) {
+    const v = (d.mv || {})[i];
+    if (v === "c") { const c = (d.custom || {})[i] || {}; return { custom: true, label: "Something else", items: [c.note || "Something else"], p: +c.p || 0, f: +c.f || 0, c: +c.c || 0, cal: +c.cal || 0 }; }
+    if (v >= 1 && m.swaps && m.swaps[v - 1]) { const s = m.swaps[v - 1]; return { label: s.name, items: s.items || [], p: +s.p || 0, f: +s.f || 0, c: +s.c || 0, cal: +s.cal || 0 }; }
+    return { label: "", items: m.items, p: m.p, f: m.f, c: m.c, cal: m.cal };
+  }
+  const consumed = d => C.meals.reduce((a, m, i) => { if (!d.meals[i]) return a; const v = mealVariant(m, i, d); return { p: a.p + v.p, f: a.f + v.f, c: a.c + v.c, cal: a.cal + v.cal }; }, { p: 0, f: 0, c: 0, cal: 0 });
   const pctOf = (v, t) => (t ? Math.max(0, Math.min(100, Math.round(v / t * 100))) : 0);
 
   function ring(pct, text, sub) {
@@ -198,7 +230,7 @@ window.startClient = function (ctx) {
       const lost = C.startWeight - latestWeight();
       const gp = pctOf(lost, C.startWeight - C.goalWeight);
       h += `<button class="card" data-go="progress" style="width:100%;text-align:left;font:inherit;color:inherit">
-        <div class="rowline"><span class="eyebrow" style="margin:0">Week ${weekNum()} of ${C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now</span></div>
+        <div class="rowline"><span class="eyebrow" style="margin:0">Week ${weekNum()} of ${C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now${(() => { const p = weights(); const recent = p.filter(q => toDate(q.date) > new Date(Date.now() - 7 * 864e5)); return recent.length >= 3 ? " (7-day avg " + (recent.reduce((a, q) => a + q.w, 0) / recent.length).toFixed(1) + ")" : ""; })()}</span></div>
         <div class="bar"><i style="width:${Math.round(weekNum() / C.totalWeeks * 100)}%"></i></div>
         <div class="rowline" style="margin-top:12px"><span class="muted small">${C.startWeight} lbs start</span><span class="muted small">${lost > 0 ? lost.toFixed(1).replace(/\.0$/, "") + " lbs down" : ""}</span><span class="muted small">${C.goalWeight} lbs goal</span></div>
         <div class="bar good"><i style="width:${gp}%"></i></div>
@@ -248,6 +280,26 @@ window.startClient = function (ctx) {
   }
 
   /* ---------- TRAINING ---------- */
+  const topW = (k, ex) => Math.max(0, ...loggedSets(k, ex).map(s => parseFloat(s.w) || 0));
+  const prevSessions = ex => Object.keys(S.lifts).filter(k => k < date && loggedSets(k, ex).length).sort();
+  function hintFor(ex) {
+    const ds = prevSessions(ex);
+    if (!ds.length) return "";
+    const sets = loggedSets(ds[ds.length - 1], ex);
+    const w = Math.max(0, ...sets.map(s => parseFloat(s.w) || 0));
+    const reps = sets.filter(s => (parseFloat(s.w) || 0) === w).map(s => parseInt(s.r, 10) || 0);
+    const hitAll = reps.length >= Math.min(C.sets, sets.length) && reps.every(r => r >= C.reps);
+    if (!w) return "Aim for " + ((Math.min(...reps) || 0) + 1) + " reps.";
+    if (hitAll) return "You hit " + C.reps + " reps on every set at " + w + " lbs. Try " + (w + 5) + " lbs.";
+    return "Stay at " + w + " lbs and aim for " + Math.min(C.reps, Math.min(...reps) + 1) + "+ reps on every set.";
+  }
+  function prBadge(ex) {
+    const t = topW(date, ex);
+    if (!t) return "";
+    const prev = Math.max(0, ...prevSessions(ex).map(k => topW(k, ex)));
+    return prev && t > prev ? `<span class="badge">New best: ${t} lbs</span>` : "";
+  }
+
   function lastSession(ex) {
     const dates = Object.keys(S.lifts).filter(k => k < date && loggedSets(k, ex).length).sort();
     if (!dates.length) return "";
@@ -295,8 +347,8 @@ window.startClient = function (ctx) {
             <input type="number" inputmode="decimal" placeholder="lbs" data-lift="${xi}" data-set="${s}" data-fld="w" value="${v.w || ""}" aria-label="${esc(ex)} set ${s + 1} weight">
             <input type="number" inputmode="numeric" placeholder="reps" data-lift="${xi}" data-set="${s}" data-fld="r" value="${v.r || ""}" aria-label="${esc(ex)} set ${s + 1} reps">`;
         }
-        const last = lastSession(ex);
-        return `<div class="card ex"><h3 style="color:var(--ink)">${esc(ex)}</h3><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}</div>`;
+        const last = lastSession(ex), hint = hintFor(ex);
+        return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3>${prBadge(ex)}</div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
       }).join("");
     }
     h += liftHistory();
@@ -328,14 +380,30 @@ window.startClient = function (ctx) {
     const n = (d.meals || []).filter(Boolean).length;
     let h = header("Meal plan", niceDate(date));
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${n} of ${C.meals.length} meals</span></div><div class="bar ${n === C.meals.length ? "good" : ""}"><i style="width:${pctOf(n, C.meals.length)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it.</div></div>`;
-    h += C.meals.map((m, i) => `
-      <div class="card meal ${d.meals[i] ? "done" : ""}" data-act="meal" data-i="${i}" role="checkbox" aria-checked="${!!d.meals[i]}" tabindex="0">
+      <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it. Ate something different? Tap "Swap or change."</div></div>`;
+    h += C.meals.map((m, i) => {
+      const v = mealVariant(m, i, d);
+      let out = `<div class="card meal ${d.meals[i] ? "done" : ""}" data-act="meal" data-i="${i}" role="checkbox" aria-checked="${!!d.meals[i]}" tabindex="0">
         <div class="check">${d.meals[i] ? "&#10003;" : ""}</div>
-        <div style="flex:1"><h3 style="color:var(--ink)">${esc(m.name)}</h3><div class="muted small">${esc(m.note)}</div>
-        <ul>${m.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-        <div class="mrow"><span>P ${m.p}g</span><span>F ${m.f}g</span><span>C ${m.c}g</span><span>${m.cal} cal</span></div></div>
-      </div>`).join("") + `<div class="muted small">${esc(C.mealNote)}</div>`;
+        <div style="flex:1"><h3 style="color:var(--ink)">${esc(m.name)}${v.label ? ` <span class="badge">${esc(v.label)}</span>` : ""}</h3><div class="muted small">${esc(m.note)}</div>
+        <ul>${v.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+        <div class="mrow"><span>P ${v.p}g</span><span>F ${v.f}g</span><span>C ${v.c}g</span><span>${v.cal} cal</span></div>
+        <button class="linkbtn" data-act="swapopen" data-i="${i}">${swapOpen[i] ? "Close" : "Swap or change"}</button></div></div>`;
+      if (swapOpen[i] && !ctx.readOnly) {
+        const cur = (d.mv || {})[i] || 0;
+        const opt = (val, label, sub) => `<button class="opt ${String(cur) === String(val) ? "on" : ""}" data-act="mealopt" data-i="${i}" data-v="${val}"><strong>${esc(label)}</strong>${sub ? `<span class="muted small"> ${esc(sub)}</span>` : ""}</button>`;
+        const c = (d.custom || {})[i] || {};
+        const fld = (k, label, val) => `<div><label class="field">${label}</label><input type="number" inputmode="numeric" data-f="cust" data-i="${i}" data-k="${k}" value="${val || ""}"></div>`;
+        out += `<div class="card swappanel"><div class="muted small" style="margin-bottom:8px">What did you eat for ${esc(m.name.toLowerCase())}?</div>
+          ${opt(0, "As planned", m.cal + " cal")}
+          ${(m.swaps || []).map((s, k) => opt(k + 1, s.name, s.cal + " cal")).join("")}
+          ${opt("c", "Something else", "enter it below")}
+          ${cur === "c" ? `<div style="margin-top:10px"><label class="field">What was it?</label><input type="text" data-f="cust" data-i="${i}" data-k="note" value="${esc(c.note || "")}">
+            <div class="grid2" style="margin-top:8px">${fld("cal", "Calories", c.cal)}${fld("p", "Protein (g)", c.p)}${fld("c", "Carbs (g)", c.c)}${fld("f", "Fat (g)", c.f)}</div>
+            <div class="muted small" style="margin-top:6px">A rough guess is fine. Leave blank if you don't know.</div></div>` : ""}</div>`;
+      }
+      return out;
+    }).join("") + `<div class="muted small">${esc(C.mealNote)}</div>`;
     return h;
   }
 
@@ -348,8 +416,10 @@ window.startClient = function (ctx) {
       const r = C.weeklyReview;
       h += `<h2>${esc(r.title)}</h2><div class="card"><h3>Wins</h3><div>${esc(r.wins)}</div><h3 style="margin-top:12px">Focus this week</h3><div>${esc(r.focus)}</div></div>`;
     }
-    h += `<h2>Message your coach</h2><div class="card"><label class="field" for="msg">Anything I should know about today? (hunger, sore, travel, questions)</label>
-      <textarea id="msg" data-f="msg" placeholder="Type here. Your coach sees it.">${esc(d.msg || "")}</textarea></div>`;
+    const fmt = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    h += `<h2>Messages</h2><div class="card"><div class="thread">${msgs.length ? msgs.map(m => `<div class="bub ${m.sender}">${esc(m.body)}<div class="bt">${m.sender === "coach" ? "Coach" : "You"} &middot; ${esc(fmt(m.created_at))}</div></div>`).join("") : `<div class="muted small">No messages yet.${ctx.readOnly ? "" : " Ask your coach anything."}</div>`}</div>
+      ${ctx.readOnly ? "" : `<label class="field" for="msgbox" style="margin-top:12px">Message your coach</label><textarea id="msgbox" placeholder="Type here. Hunger, sore, travel, questions. Your coach sees it."></textarea>
+        ${msgNote ? `<div class="muted small" style="margin-top:6px">${esc(msgNote)}</div>` : ""}<div class="btns"><button class="btn" data-act="sendmsg">Send</button></div>`}</div>`;
     h += `<h2>Plan notes</h2>` + (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
     if (ctx.readOnly) return h + `<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="logout">Back to coach view</button></div>`;
     h += `<h2>Account</h2><div class="card"><h3>Change password</h3>
@@ -362,10 +432,17 @@ window.startClient = function (ctx) {
   }
 
   /* ---------- PROGRESS (from Home) ---------- */
-  function chart(points) {
+  function avg7(pts) {
+    return pts.map(p => {
+      const t = toDate(p.date).getTime();
+      const win = pts.filter(q => { const u = toDate(q.date).getTime(); return u <= t && u > t - 7 * 864e5; });
+      return { date: p.date, w: +(win.reduce((a, q) => a + q.w, 0) / win.length).toFixed(1) };
+    });
+  }
+  function chart(points, avg) {
     if (points.length < 2) return `<div class="muted">Log your weight a few days to see the chart.</div>`;
     const W = 340, H = 150, pad = 28;
-    const ws = points.map(p => p.w);
+    const ws = points.concat(avg || []).map(p => p.w);
     const lo = Math.floor(Math.min(...ws) - 1), hi = Math.ceil(Math.max(...ws) + 1);
     const t0 = toDate(points[0].date).getTime(), t1 = toDate(points[points.length - 1].date).getTime();
     const x = p => pad + (t1 === t0 ? 0 : (toDate(p.date).getTime() - t0) / (t1 - t0)) * (W - pad - 10);
@@ -374,8 +451,9 @@ window.startClient = function (ctx) {
     return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chart over time">
       <line x1="${pad}" y1="${H - 20}" x2="${W - 10}" y2="${H - 20}" stroke="var(--line)"/>
       <text x="2" y="${y({ w: hi }) + 4}">${hi}</text><text x="2" y="${y({ w: lo }) + 4}">${lo}</text>
-      <path d="${path}" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-      ${points.map(p => `<circle cx="${x(p).toFixed(1)}" cy="${y(p).toFixed(1)}" r="3.5" fill="var(--amber)"/>`).join("")}
+      ${avg ? `<path d="${avg.map((p, i) => (i ? "L" : "M") + x(p).toFixed(1) + " " + y(p).toFixed(1)).join(" ")}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-dasharray="6 4" stroke-linecap="round"/>` : ""}
+      <path d="${path}" fill="none" stroke="var(--amber)" stroke-width="${avg ? 1.5 : 2.5}" stroke-linejoin="round" stroke-linecap="round" ${avg ? 'opacity="0.55"' : ""}/>
+      ${points.map(p => `<circle cx="${x(p).toFixed(1)}" cy="${y(p).toFixed(1)}" r="${avg ? 3 : 3.5}" fill="var(--amber)"/>`).join("")}
       <text x="${pad}" y="${H - 6}">${toDate(points[0].date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</text>
       <text x="${W - 50}" y="${H - 6}">${toDate(points[points.length - 1].date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</text></svg>`;
   }
@@ -389,7 +467,8 @@ window.startClient = function (ctx) {
       <div class="macro"><div class="n">${first}</div><div class="l">Start</div></div>
       <div class="macro"><div class="n">${cur}</div><div class="l">Now</div></div>
       <div class="macro"><div class="n">${(first - cur).toFixed(1).replace(/\.0$/, "")}</div><div class="l">Lbs down</div></div></div>`;
-    h += `<h2>Weight</h2><div class="card">${chart(pts)}</div>`;
+    const av = avg7(pts);
+    h += `<h2>Weight</h2><div class="card">${chart(pts, pts.length > 2 ? av : null)}${pts.length > 2 ? `<div class="legend"><span><i class="cell part"></i> Daily weigh-in</span><span><i class="cell full"></i> 7-day average${av.length ? " (" + av[av.length - 1].w + " lbs)" : ""}</span></div><div class="muted small" style="margin-top:8px">Your weight bounces day to day with water and food. The average is the number to watch.</div>` : ""}</div>`;
     return h + photosSection() + liftHistory();
   }
 
@@ -452,12 +531,18 @@ window.startClient = function (ctx) {
   }
 
   document.addEventListener("click", e => {
+    if (e.target.closest("input, textarea, select")) return;
     const t = e.target.closest("[data-tab],[data-act],[data-go]");
     if (!t) return;
-    if (t.dataset.tab || t.dataset.go) { tab = t.dataset.tab || t.dataset.go; render(); window.scrollTo(0, 0); return; }
+    if (t.dataset.tab || t.dataset.go) {
+      tab = t.dataset.tab || t.dataset.go; render(); window.scrollTo(0, 0);
+      if (tab === "notes") refreshMsgs().then(() => { if (tab === "notes") { render(); } markRead(); }).catch(() => {});
+      return;
+    }
     if (t.dataset.act === "logout") { ctx.logout(); return; }
     if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
+    if (t.dataset.act === "sendmsg") { sendMsg(); return; }
     const d = dayRec(date);
     switch (t.dataset.act) {
       case "prev": { const x = toDate(date); x.setDate(x.getDate() - 1); date = iso(x); break; }
@@ -467,6 +552,8 @@ window.startClient = function (ctx) {
       case "rate": { d.checkin = d.checkin || {}; const k = t.dataset.k, v = +t.dataset.v; d.checkin[k] = d.checkin[k] === v ? null : v; save(); break; }
       case "wtype": d.workout = t.dataset.v; save(); break;
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
+      case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
+      case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
       case "ciopen": checkinOpen = true; break;
       case "ciclose": checkinOpen = false; break;
       case "offplan": d.offPlan = d.offPlan || {}; d.offPlan.on = !d.offPlan.on; save(); break;
@@ -498,6 +585,13 @@ window.startClient = function (ctx) {
     const d = dayRec(date);
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
     if (t.dataset.f === "steps") { d.steps = parseInt(t.value, 10) || null; save(); render(); return; }
+    if (t.dataset.f === "cust") {
+      const i = +t.dataset.i, k = t.dataset.k;
+      d.custom = d.custom || {}; d.custom[i] = d.custom[i] || {};
+      d.custom[i][k] = k === "note" ? t.value : (parseFloat(t.value) || 0);
+      d.meals[i] = true; save();
+      const y = window.scrollY; render(); window.scrollTo(0, y); return;
+    }
     if (t.dataset.f === "offnote") { d.offPlan = d.offPlan || {}; d.offPlan.note = t.value; save(); return; }
     if (t.dataset.f === "msg") { d.msg = t.value; save(); return; }
     if (t.dataset.lift !== undefined) {
@@ -513,4 +607,5 @@ window.startClient = function (ctx) {
   });
 
   render();
+  updateDot();
 };
