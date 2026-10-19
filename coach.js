@@ -13,7 +13,12 @@ window.startCoach = function (ctx) {
   const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
   const r1 = x => Math.round(x * 10) / 10;
 
-  let clients = [], configs = {}, logs = {}, msgs = {}, selected = null, notice = "";
+  let clients = [], configs = {}, logs = {}, msgs = {}, selected = null, notice = "", selfProfile = { id: ctx.userId, name: "Me" };
+  const loadedAt = Date.now(), loadedDay = today;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && (iso(new Date()) !== loadedDay || Date.now() - loadedAt > 30 * 60 * 1000)) location.reload();
+  });
+  const person = id => clients.find(x => x.id === id) || (id === ctx.userId ? selfProfile : null);
 
   async function loadAll() {
     const [p, c, l, m] = await Promise.all([
@@ -25,9 +30,36 @@ window.startCoach = function (ctx) {
     const err = p.error || c.error || l.error;
     if (err) { notice = "Could not load data: " + err.message; return; }
     clients = p.data || [];
+    try { const me = await sb.from("profiles").select("id,name").eq("id", ctx.userId).maybeSingle(); if (me.data) selfProfile = me.data; } catch (e) {}
     configs = {}; (c.data || []).forEach(r => { configs[r.user_id] = r.config || {}; });
     logs = {}; (l.data || []).forEach(r => { (logs[r.user_id] = logs[r.user_id] || {})[r.log_date] = { day: r.day || {}, lifts: r.lifts || {} }; });
     msgs = {}; ((m && m.data) || []).forEach(x => { (msgs[x.client_id] = msgs[x.client_id] || []).push(x); });
+  }
+
+  const REPLY_TEMPLATES = [
+    ["Great week", "Great work this week. Your consistency is showing. Keep it going."],
+    ["Weigh-in reminder", "Quick reminder to log your weigh-in and steps today so I can see your trend."],
+    ["Sleep check", "How has your sleep been? Aim for 7 to 9 hours. It makes a big difference to recovery."],
+    ["Log your food", "Let's tighten up food logging this week. Log everything, even the small stuff, so we can see what's really happening."],
+    ["Protein", "Nice work hitting your protein. That's the biggest lever for results, so keep it up."],
+    ["Check in", "Haven't seen a check-in from you in a couple of days. Everything okay? Let me know how I can help."]
+  ];
+  function weightChartCard(id) {
+    const pts = weightSeries(id);
+    if (pts.length < 2) return "";
+    const W = 320, H = 120, P = 22, xs = pts.map(p => toDate(p.date).getTime()), ys = pts.map(p => p.w);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), lo = Math.floor(Math.min(...ys) - 1), hi = Math.ceil(Math.max(...ys) + 1);
+    const X = t => P + (x1 === x0 ? 0.5 : (t - x0) / (x1 - x0)) * (W - 2 * P), Y = v => H - P - (v - lo) / (hi - lo || 1) * (H - 2 * P);
+    const line = pts.map((p, i) => (i ? "L" : "M") + r1(X(toDate(p.date).getTime())) + " " + r1(Y(p.w))).join(" ");
+    const avgPts = pts.map(p => { const t = toDate(p.date).getTime(), w = pts.filter(q => { const u = toDate(q.date).getTime(); return u <= t && u > t - 7 * 864e5; }); return { t, v: avg(w.map(q => q.w)) }; });
+    const avgLine = avgPts.map((p, i) => (i ? "L" : "M") + r1(X(p.t)) + " " + r1(Y(p.v))).join(" ");
+    const first = pts[0], last = pts[pts.length - 1];
+    return `<h2>Weight</h2><div class="card"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Weight over time">
+      <path d="${line}" fill="none" stroke="var(--amber)" stroke-width="2"/><path d="${avgLine}" fill="none" stroke="var(--slate)" stroke-width="2" stroke-dasharray="4 3"/>
+      ${pts.map(p => `<circle cx="${r1(X(toDate(p.date).getTime()))}" cy="${r1(Y(p.w))}" r="2.6" fill="var(--amber)"/>`).join("")}
+      <text x="${P}" y="12" font-size="10" fill="var(--slate)">${hi}</text><text x="${P}" y="${H - 6}" font-size="10" fill="var(--slate)">${lo}</text>
+      <text x="${W - P}" y="${H - 6}" font-size="10" text-anchor="end" fill="var(--slate)">${short(last.date)}</text><text x="${P + 14}" y="${H - 6}" font-size="10" fill="var(--slate)">${short(first.date)}</text></svg>
+      <div class="muted small">${first.w} lbs on ${short(first.date)} to ${last.w} lbs on ${short(last.date)} (${r1(last.w - first.w) > 0 ? "+" : ""}${r1(last.w - first.w)}). Dashed line is the 7-day average.</div></div>`;
   }
 
   /* ---------- export & backup ---------- */
@@ -317,6 +349,7 @@ window.startCoach = function (ctx) {
         <div class="muted small">${lw ? "Last weigh-in " + esc(lw.w) + " lbs (" + short(lw.k) + ")" : "No weigh-ins yet"}</div>${status}
         ${f.map(x => `<span class="flag">${esc(x)}</span>`).join("")}${sheet}</div>`;
     }).join("");
+    h += `<h2>Your own plan</h2><div class="card"><div class="muted small">Edit your own targets, exercises and schedule here.</div><div class="btns"><button class="btn ghost" data-c="myplan">Edit my plan</button></div></div>`;
     h += `<h2>Your data</h2><div class="card"><div class="muted small">Supabase's free plan has no automatic backups. Download a copy of everything every week or two and keep it somewhere safe.</div>
       <div class="btns"><button class="btn" data-c="backup">Download backup (all clients)</button></div></div>`;
     return h;
@@ -329,9 +362,9 @@ window.startCoach = function (ctx) {
   }
 
   function viewClient() {
-    const c = clients.find(x => x.id === selected);
+    const c = person(selected), isMe = selected === ctx.userId;
     const cfg = configs[selected];
-    let h = topbar(c.name || "Client", "Client", true) + (notice ? `<div class="card note" style="margin-top:12px">${esc(notice)}</div>` : "");
+    let h = topbar(isMe ? "My plan" : (c.name || "Client"), isMe ? "Your own app" : "Client", true) + (notice ? `<div class="card note" style="margin-top:12px">${esc(notice)}</div>` : "");
 
     if (!cfg || !cfg.meals) {
       return h + `<div class="card" style="margin-top:16px"><h3>Set up this client's plan</h3>
@@ -340,12 +373,13 @@ window.startCoach = function (ctx) {
     }
 
     const A = "text-decoration:none;display:inline-flex;align-items:center";
-    h += `<div class="btns"><a class="btn" style="${A}" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a><a class="btn ghost" style="${A}" href="?results=${encodeURIComponent(selected)}">Results page</a></div>`;
-    h += sheetHtml(selected);
-    h += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${esc(c.name || "client")}'s data (CSV)</button></div>`;
+    if (!isMe) h += `<div class="btns"><a class="btn" style="${A}" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a><a class="btn ghost" style="${A}" href="?results=${encodeURIComponent(selected)}">Results page</a></div>`;
+    if (!isMe) h += sheetHtml(selected);
+    h += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${isMe ? "my" : esc(c.name || "client") + "'s"} data (CSV)</button></div>`;
+    h += weightChartCard(selected);
 
     // messages
-    h += `<h2>Messages</h2><div class="card">${threadHtml(selected)}<label class="field" for="reply-box" style="margin-top:12px">Reply</label><textarea id="reply-box" placeholder="Write to ${esc(c.name || "your client")}. They see it in the app."></textarea>
+    if (!isMe) h += `<h2>Messages</h2><div class="card">${threadHtml(selected)}<div class="chips" style="margin-top:12px">${REPLY_TEMPLATES.map((t, i) => `<button class="chipbtn" data-c="tpl" data-i="${i}">${esc(t[0])}</button>`).join("")}</div><label class="field" for="reply-box" style="margin-top:8px">Reply</label><textarea id="reply-box" placeholder="Write to ${esc(c.name || "your client")}. They see it in the app."></textarea>
       <div class="btns"><button class="btn" data-c="reply">Send</button></div></div>`;
 
     // weekly report
@@ -468,6 +502,8 @@ window.startCoach = function (ctx) {
     if (a === "logout") { ctx.logout(); return; }
     if (a === "myapp") { ctx.switchToMe(); return; }
     if (a === "backup") { backupAll(); return; }
+    if (a === "myplan") { selected = ctx.userId; notice = ""; render(); return; }
+    if (a === "tpl") { const b = document.getElementById("reply-box"); if (b) { b.value = REPLY_TEMPLATES[+t.dataset.i][1]; b.focus(); } return; }
     if (a === "exportcsv") { exportCsv(selected); return; }
     if (a === "back") { selected = null; notice = ""; render(); return; }
     if (a === "open") { openClient(t.dataset.id); return; }
@@ -501,12 +537,12 @@ window.startCoach = function (ctx) {
       render(true); return;
     }
     if (a === "template") {
-      const c = clients.find(x => x.id === selected);
+      const c = person(selected);
       const cfg = JSON.parse(JSON.stringify(CLIENT)); cfg.name = c.name || cfg.name; cfg.startDate = today;
       notice = (await upsertConfig(selected, cfg)) ? "Plan created. Change anything below." : notice; render(); return;
     }
     if (a === "save") {
-      const c = clients.find(x => x.id === selected);
+      const c = person(selected);
       const cfg = JSON.parse(JSON.stringify(configs[selected]));
       const nm = val("ed-name").trim() || c.name;
       cfg.name = nm;

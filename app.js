@@ -39,6 +39,15 @@ window.startClient = function (ctx) {
   let date = realToday;
   let tab = "home";
 
+  // Installed apps stay open in memory for days. Reload when the app comes back after a long break or a new day,
+  // so "today" is right and the coach's latest plan changes show up.
+  const loadedAt = Date.now(), loadedDay = realToday;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (iso(new Date()) === loadedDay && Date.now() - loadedAt < 30 * 60 * 1000) return;
+    Promise.resolve(flush()).then(() => { if (!dirty.size) location.reload(); });
+  });
+
   const dayRec = k => { if (!S.days[k]) S.days[k] = { meals: [], water: 0 }; return S.days[k]; };
   const scheduled = k => C.schedule[toDate(k).getDay()];
   // Rotation mode (config `rotation: true`): the suggested session is the next one in the cycle after the last
@@ -355,6 +364,12 @@ window.startClient = function (ctx) {
   }
   const pctOf = (v, t) => (t ? Math.max(0, Math.min(100, Math.round(v / t * 100))) : 0);
 
+  function leftLine(done) {
+    const T = C.targets;
+    const f = (lab, t, v, u) => { const x = Math.round(t - v); return x >= 0 ? x.toLocaleString() + u + " " + lab : Math.abs(x).toLocaleString() + u + " over on " + lab; };
+    return `Left today: ${f("calories", T.calories, done.cal, "")} &middot; ${f("protein", T.protein, done.p, "g")} &middot; ${f("carbs", T.carbs, done.c, "g")} &middot; ${f("fat", T.fat, done.f, "g")}`;
+  }
+
   function ring(pct, text, sub) {
     const c = 2 * Math.PI * 34;
     return `<svg class="ring" viewBox="0 0 80 80" role="img" aria-label="${esc(sub)} ${esc(text)}">
@@ -553,7 +568,8 @@ window.startClient = function (ctx) {
     const mac = (label, v, t, unit) => `<div class="macro"><div class="n">${v}${unit}</div><div class="l">${label}</div><div class="t">of ${t}${unit}</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
       <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">${C.meals.length ? "Check off your meals on the Meals tab and these numbers fill in." : "Log what you eat on the Food tab and these numbers fill in."}</div></div>
+      <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
+      <div class="muted small" style="margin-top:4px">${C.meals.length ? "Check off your meals on the Meals tab and these numbers fill in." : "Log what you eat on the Food tab and these numbers fill in."}</div></div>
       <div class="macros">${mac("Protein", done.p, T.protein, "g")}${mac("Carbs", done.c, T.carbs, "g")}${mac("Fat", done.f, T.fat, "g")}</div>`;
     h += `<h2>Water</h2><div class="card"><div class="rowline"><span class="big">${w}<span class="muted small"> / ${T.water} oz</span></span></div>
       <div class="bar ${w >= T.water ? "good" : ""}"><i style="width:${pctOf(w, T.water)}%"></i></div>
@@ -572,7 +588,8 @@ window.startClient = function (ctx) {
       let h = header("Food log", niceDate(date));
       h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
         <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-        <div class="muted small" style="margin-top:8px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
+        <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
+        <div class="muted small" style="margin-top:4px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
       const mac = (label, v, t) => `<div class="macro"><div class="n">${r1(v)}g</div><div class="l">${label}</div><div class="t">of ${t}g</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
       h += `<div class="macros">${mac("Protein", done.p, T.protein)}${mac("Carbs", done.c, T.carbs)}${mac("Fat", done.f, T.fat)}</div>`;
       return h + foodCard(d);
@@ -699,6 +716,18 @@ window.startClient = function (ctx) {
       <div class="macro"><div class="n">${bestStreak()}</div><div class="l">Best streak</div></div>
       <div class="macro"><div class="n">${perfect}</div><div class="l">Perfect days</div></div></div>
       <div class="muted small" style="margin-top:8px">A streak counts every day you finish your daily check-in. A perfect day is everything on Home checked off.</div>`;
+
+    const liftedDays = Object.keys(S.lifts).filter(k => dayLifted(k)).length;
+    const dayKeys = Object.keys(S.days);
+    const proteinDays = dayKeys.filter(k => consumed(S.days[k]).p >= C.targets.protein * 0.95).length;
+    const sleepDays = dayKeys.filter(k => (S.days[k].sleepHrs || 0) >= 7).length;
+    const weighIns = dayKeys.filter(k => S.days[k].weight).length;
+    const best = bestStreak();
+    const bd = (on, t, d) => `<div class="bdg ${on ? "on" : ""}"><div class="bi">${on ? "&#10003;" : "&middot;"}</div><div><strong>${t}</strong><div class="muted small">${d}</div></div></div>`;
+    h += `<h2>Milestones</h2><div class="card badges">
+      ${bd(liftedDays >= 1, "First workout", "Log your first session")}${bd(liftedDays >= 10, "10 workouts", liftedDays + " so far")}${bd(liftedDays >= 25, "25 workouts", liftedDays + " so far")}${bd(liftedDays >= 50, "50 workouts", liftedDays + " so far")}
+      ${bd(best >= 7, "7-day streak", "Best: " + best)}${bd(best >= 14, "14-day streak", "Best: " + best)}${bd(best >= 30, "30-day streak", "Best: " + best)}${bd(perfect >= 1, "Perfect day", "Everything checked off")}
+      ${bd(weighIns >= 7, "7 weigh-ins", weighIns + " so far")}${bd(proteinDays >= 7, "Protein x7", "Hit your protein " + proteinDays + (proteinDays === 1 ? " time" : " times"))}${bd(sleepDays >= 5, "Slept 7+ hours x5", sleepDays + (sleepDays === 1 ? " night" : " nights"))}</div>`;
 
     const start = toDate(realToday); start.setDate(start.getDate() - 27);
     let cells = ["S", "M", "T", "W", "T", "F", "S"].map(x => `<div class="dow">${x}</div>`).join("");
@@ -911,6 +940,27 @@ window.startClient = function (ctx) {
   });
 
   { const mb = document.querySelector('#tabs [data-tab="meals"]'); if (mb) mb.textContent = C.meals.length ? "Meals" : "Food"; }
+  function showWelcome() {
+    if (ctx.readOnly || ctx.isSelf || Object.keys(S.days).length > 3) return;
+    const key = "welcomed_" + ctx.userId;
+    try { if (localStorage.getItem(key)) return; } catch (e) { return; }
+    const el = document.createElement("div");
+    el.className = "welcome"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Welcome");
+    const steps = [
+      ["Home", "Your day at a glance. Weigh in each morning, log your steps and sleep, and do your daily check-in at night."],
+      [C.meals.length ? "Meals" : "Food", C.meals.length ? "Tap each meal when you eat it. Ate something different? Use Swap, or search any food and enter the weight." : "Search each food you eat, enter the weight, and your calories and macros add up through the day."],
+      ["Training", "Log your weight and reps for each set. The app shows what you did last time so you know what to beat."],
+      ["Notes", "Message your coach any time. Hunger, soreness, travel, questions. They see it."]
+    ];
+    el.innerHTML = `<div class="wcard"><div class="eyebrow">Welcome</div><h2 style="margin:0 0 10px">Hi ${esc(C.name || "there")}, here's how this works</h2>
+      ${steps.map((s, i) => `<div class="wstep"><b>${i + 1}</b><div><strong>${esc(s[0])}</strong><div class="muted small">${esc(s[1])}</div></div></div>`).join("")}
+      <div class="muted small" style="margin:10px 0">Tip: add this app to your home screen so it opens like a normal app.</div>
+      <button class="btn" style="width:100%" id="welcomeok">Let's go</button></div>`;
+    document.body.appendChild(el);
+    document.getElementById("welcomeok").onclick = () => { try { localStorage.setItem(key, "1"); } catch (e) {} el.remove(); };
+  }
+
   render();
+  showWelcome();
   updateDot();
 };
