@@ -214,3 +214,6 @@ body.dark #resttimer, :root[data-theme="dark"] #resttimer { background: #2A2F3B;
 .demobar { position: sticky; top: 0; z-index: 60; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 14px; background: var(--amber); color: #fff; font-size: 12.5px; font-weight: 600; }
 .demobar a { color: #fff; text-decoration: underline; white-space: nowrap; }
 body.demo [data-act="logout"], body.demo [data-c="logout"], body.demo [data-c="myapp"], body.demo [data-c="myplan"], body.demo a[href^="?results="], body.demo #sync { display: none !important; }
+
+.phase { font-size: 13px; color: var(--slate); margin-top: 2px; }
+.phase.focus { color: var(--amber); font-weight: 600; }

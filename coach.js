@@ -314,6 +314,15 @@ window.startCoach = function (ctx) {
       <div class="btns" style="margin-top:6px"><button class="btn ghost" data-c="copysheet" data-id="${esc(id)}">Copy call notes</button></div></div>`;
   }
 
+  // Which phase of the 12 weeks a client is in. Month 1 needs the most attention.
+  function phaseOf(cfg) {
+    if (!cfg || !cfg.startDate) return null;
+    const wk = Math.floor((toDate(today) - toDate(cfg.startDate)) / 864e5 / 7) + 1;
+    if (wk < 1) return { wk, label: "Starts " + short(cfg.startDate), cls: "" };
+    if (wk > (cfg.totalWeeks || 12)) return { wk, label: "Program complete", cls: "" };
+    const m = wk <= 4 ? 1 : wk <= 8 ? 2 : 3;
+    return { wk, m, label: "Week " + wk + " of " + (cfg.totalWeeks || 12) + " \u00b7 Month " + m, cls: m === 1 ? "focus" : "" };
+  }
   function viewList() {
     let h = topbar("Your clients", "Coach view") + (notice ? `<div class="card note" style="margin-top:12px">${esc(notice)}</div>` : "");
     if (!clients.length) {
@@ -330,8 +339,10 @@ window.startCoach = function (ctx) {
       h += `<div class="card wkcard" style="margin-top:16px">${cell("Weighed in", n(x => rec(x.id, today).day.weight) + "/" + live.length, "today")}${cell("Checked in", n(x => scoreOf(rec(x.id, today).day)) + "/" + live.length, "today")}${cell("Messages", unread, "unread")}${cell("Quiet", quiet.length, "no log in 2 days")}</div>`;
       if (attn.length) h += `<div class="card note"><div class="eyebrow">Needs your attention</div>${attn.map(x => esc(x.name || "Client") + (quiet.includes(x) ? " (quiet)" : "")).join(", ")}</div>`;
     }
-    h += clients.map(c => {
+    const ordered = clients.slice().sort((a, z) => ((configs[z.id] || {}).startDate || "").localeCompare((configs[a.id] || {}).startDate || ""));
+    h += ordered.map(c => {
       const cfg = configs[c.id];
+      const ph = phaseOf(cfg);
       const r = rec(c.id, today), d = r.day;
       const lw = lastWeight(c.id);
       const f = flagsFor(c.id);
@@ -344,7 +355,7 @@ window.startCoach = function (ctx) {
           ${chip("Steps" + (d.steps ? " " + d.steps : ""), !!d.steps)}${chip("Sleep" + (d.sleepHrs ? " " + d.sleepHrs + "h" : ""), !!d.sleepHrs)}${chip("Check-in", !!scoreOf(d))}${ex.wk && ex.wk !== "Rest" ? chip(ex.wk + " " + ex.done + "/" + ex.total, ex.total > 0 && ex.done === ex.total) : ""}</div>`;
         sheet = sheetHtml(c.id);
       }
-      return `<div class="card" style="margin-top:12px"><h3 style="color:var(--ink)">${esc(c.name || "Client")}</h3>
+      return `<div class="card" style="margin-top:12px"><h3 style="color:var(--ink)">${esc(c.name || "Client")}</h3>${ph ? `<div class="phase ${ph.cls}">${esc(ph.label)}${ph.cls === "focus" ? " &middot; needs the most attention" : ""}</div>` : ""}
         <div class="btns" style="margin:8px 0 10px"><a class="btn ghost" style="text-decoration:none;display:inline-flex;align-items:center" href="?preview=${encodeURIComponent(c.id)}">See app</a><button class="btn" data-c="open" data-id="${esc(c.id)}">Open</button></div>
         <div class="muted small">${lw ? "Last weigh-in " + esc(lw.w) + " lbs (" + short(lw.k) + ")" : "No weigh-ins yet"}</div>${status}
         ${f.map(x => `<span class="flag">${esc(x)}</span>`).join("")}${sheet}</div>`;
