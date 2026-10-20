@@ -57,8 +57,8 @@ window.startCoach = function (ctx) {
     return `<h2>Weight</h2><div class="card"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Weight over time">
       <path d="${line}" fill="none" stroke="var(--amber)" stroke-width="2"/><path d="${avgLine}" fill="none" stroke="var(--slate)" stroke-width="2" stroke-dasharray="4 3"/>
       ${pts.map(p => `<circle cx="${r1(X(toDate(p.date).getTime()))}" cy="${r1(Y(p.w))}" r="2.6" fill="var(--amber)"/>`).join("")}
-      <text x="${P}" y="12" font-size="10" fill="var(--slate)">${hi}</text><text x="${P}" y="${H - 6}" font-size="10" fill="var(--slate)">${lo}</text>
-      <text x="${W - P}" y="${H - 6}" font-size="10" text-anchor="end" fill="var(--slate)">${short(last.date)}</text><text x="${P + 14}" y="${H - 6}" font-size="10" fill="var(--slate)">${short(first.date)}</text></svg>
+      <text x="2" y="12" font-size="10" fill="var(--slate)">${hi}</text><text x="2" y="${H - P - 2}" font-size="10" fill="var(--slate)">${lo}</text>
+      <text x="${W - 4}" y="${H - 6}" font-size="10" text-anchor="end" fill="var(--slate)">${short(last.date)}</text><text x="${P}" y="${H - 6}" font-size="10" fill="var(--slate)">${short(first.date)}</text></svg>
       <div class="muted small">${first.w} lbs on ${short(first.date)} to ${last.w} lbs on ${short(last.date)} (${r1(last.w - first.w) > 0 ? "+" : ""}${r1(last.w - first.w)}). Dashed line is the 7-day average.</div></div>`;
   }
 

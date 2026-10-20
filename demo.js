@@ -29,17 +29,21 @@
   const PEOPLE = [
     { id: "demo-jordan", name: "Jordan", seed: 11, startW: 195, goalW: 180, endW: 188.4, schedule: PPL, workouts: WORKOUTS_PPL, meals: MEALS, plan: "cut", days: 34, last: 0, today: true,
       targets: { calories: 2000, protein: 150, fat: 56, fatCeiling: 56, carbs: 235, water: 120, steps: 10000 } },
-    { id: "demo-maya", name: "Maya", seed: 23, startW: 148, goalW: 148, endW: 147.6, schedule: UL, workouts: WORKOUTS_UL, meals: [], plan: "recomp", days: 27, last: 3, today: false,
-      targets: { calories: 1900, protein: 118, fat: 44, fatCeiling: 44, carbs: 258, water: 100, steps: 9000 } },
+    { id: "demo-maya", name: "Maya", seed: 23, startW: 160, goalW: 160, endW: 159.6, schedule: UL, workouts: WORKOUTS_UL, meals: [], plan: "recomp", days: 27, last: 3, today: false,
+      targets: { calories: 1900, protein: 128, fat: 48, fatCeiling: 48, carbs: 239, water: 100, steps: 9000 } },
     { id: "demo-chris", name: "Chris", seed: 37, startW: 172, goalW: 182, endW: 175.2, schedule: PPL, workouts: WORKOUTS_PPL, meals: MEALS.map(m => Object.assign({}, m, { cal: Math.round(m.cal * 1.3), p: Math.round(m.p * 1.15), c: Math.round(m.c * 1.4), f: Math.round(m.f * 1.2) })), plan: "bulk", days: 20, last: 0, today: false, lowSleepYesterday: true,
       targets: { calories: 2800, protein: 140, fat: 52, fatCeiling: 52, carbs: 380, water: 120, steps: 8000 } }
   ];
 
-  const FOOD_SAMPLES = [
-    { n: "Chicken breast, cooked", cal: 330, p: 62, f: 7, c: 0, amt: "200 g" }, { n: "White rice, cooked", cal: 260, p: 5, f: 1, c: 56, amt: "200 g" },
-    { n: "Greek yogurt, nonfat plain", cal: 145, p: 25, f: 1, c: 9, amt: "245 g" }, { n: "Banana", cal: 105, p: 1, f: 0, c: 27, amt: "1 medium" },
-    { n: "Protein bar", cal: 200, p: 20, f: 7, c: 22, amt: "entered by hand" }, { n: "Egg, whole", cal: 215, p: 19, f: 14, c: 1, amt: "3 large egg" },
-    { n: "Oats, rolled (dry)", cal: 311, p: 14, f: 6, c: 53, amt: "80 g" }, { n: "Salmon, cooked", cal: 370, p: 40, f: 22, c: 0, amt: "180 g" }
+  const DAY_FOODS = [
+    { slot: "Breakfast", n: "Oats, rolled (dry)", amt: "80 g", cal: 311, p: 13.5, f: 5.5, c: 53 },
+    { slot: "Breakfast", n: "Egg, whole", amt: "2 large egg", cal: 143, p: 12.6, f: 9.5, c: 0.7 },
+    { slot: "Lunch", n: "Chicken breast, cooked", amt: "120 g", cal: 198, p: 37.2, f: 4.3, c: 0 },
+    { slot: "Lunch", n: "White rice, cooked", amt: "200 g", cal: 260, p: 5.4, f: 0.6, c: 56.4 },
+    { slot: "Snack", n: "Greek yogurt, nonfat plain", amt: "1 cup", cal: 145, p: 25, f: 1, c: 9 },
+    { slot: "Snack", n: "Banana", amt: "1 medium", cal: 105, p: 1.3, f: 0.4, c: 27 },
+    { slot: "Dinner", n: "Salmon, cooked", amt: "120 g", cal: 247, p: 26.4, f: 14.9, c: 0 },
+    { slot: "Dinner", n: "Broccoli, cooked", amt: "150 g", cal: 53, p: 3.6, f: 0.6, c: 10.8 }
   ];
 
   function build(p) {
@@ -55,7 +59,7 @@
       day.sleepHrs = Math.round((6.2 + R() * 2.2) * 4) / 4;
       const q = i < 14 ? 0.92 : 0.8;                                         // consistency improves over time
       if (cfgMeals.length) cfgMeals.forEach((m, idx) => { day.meals[idx] = R() < q; });
-      else { day.foods = []; const n = 4 + Math.floor(R() * 3); for (let j = 0; j < n; j++) { const f = FOOD_SAMPLES[Math.floor(R() * FOOD_SAMPLES.length)]; day.foods.push(Object.assign({ slot: ["Breakfast", "Lunch", "Lunch", "Dinner", "Dinner", "Snack"][j % 6] }, f)); } }
+      else day.foods = DAY_FOODS.filter(() => R() < 0.92).map(f => Object.assign({}, f));
       if (R() < 0.9) day.checkin = { n: R() < 0.8 ? 4 + Math.round(R()) : 3, i: R() < 0.75 ? 5 : 4, s: R() < 0.7 ? 4 : 3, h: 2, e: 4 };
       if (p.lowSleepYesterday && i === 1) day.checkin = { n: 3, i: 4, s: 2, h: 3, e: 2 };
       const lifts = {};

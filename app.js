@@ -516,7 +516,7 @@ window.startClient = function (ctx) {
     h += `<h2>Today at a glance</h2><div class="tiles2">
       ${tile("training", "Training", wk === "Rest" ? "Rest" : esc(wk), wk === "Rest" ? "Recover today" : exDone + " of " + exs.length + " exercises", wk === "Rest" ? 100 : pctOf(exDone, exs.length))}
       ${tile("nutrition", "Calories", done.cal.toLocaleString(), "of " + T.calories.toLocaleString(), pctOf(done.cal, T.calories))}
-      ${tile("nutrition", "Protein", done.p + "g", "of " + T.protein + "g", pctOf(done.p, T.protein))}
+      ${tile("nutrition", "Protein", Math.round(done.p) + "g", "of " + T.protein + "g", pctOf(done.p, T.protein))}
       ${tile("nutrition", "Water", w + " oz", "of " + T.water + " oz", pctOf(w, T.water))}
     </div>`;
 
@@ -635,7 +635,7 @@ window.startClient = function (ctx) {
   function viewNutrition() {
     const d = dayRec(date), done = consumed(d), T = C.targets, w = d.water || 0;
     let h = header("Nutrition", niceDate(date));
-    const mac = (label, v, t, unit) => `<div class="macro"><div class="n">${v}${unit}</div><div class="l">${label}</div><div class="t">of ${t}${unit}</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
+    const mac = (label, v, t, unit) => `<div class="macro"><div class="n">${Math.round(v)}${unit}</div><div class="l">${label}</div><div class="t">of ${t}${unit}</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
     h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
       <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
       <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
@@ -660,7 +660,7 @@ window.startClient = function (ctx) {
         <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
         <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
         <div class="muted small" style="margin-top:4px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
-      const mac = (label, v, t) => `<div class="macro"><div class="n">${r1(v)}g</div><div class="l">${label}</div><div class="t">of ${t}g</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
+      const mac = (label, v, t) => `<div class="macro"><div class="n">${Math.round(v)}g</div><div class="l">${label}</div><div class="t">of ${t}g</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
       h += `<div class="macros">${mac("Protein", done.p, T.protein)}${mac("Carbs", done.c, T.carbs)}${mac("Fat", done.f, T.fat)}</div>`;
       return h + foodCard(d);
     }
@@ -718,6 +718,7 @@ window.startClient = function (ctx) {
       <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>
       <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
+    h += `<div class="muted small" style="margin-top:18px;text-align:center"><a href="https://awwabidris21.github.io/Coaching-Policies-/terms.html" target="_blank" rel="noopener">Terms</a> &middot; <a href="https://awwabidris21.github.io/Coaching-Policies-/privacy.html" target="_blank" rel="noopener">Privacy</a></div>`;
     return h;
   }
 
