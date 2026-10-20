@@ -3,6 +3,30 @@
   const tabs = document.getElementById("tabs");
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  // Demo mode: fake data, no login, nothing saved. See app/demo.js.
+  const DEMO_CTA = { text: "Join the Nov 1 launch", url: "https://awwabidris21.github.io/Coaching-Policies-/intake.html" };
+  function startDemo(kind, as) {
+    const demo = DemoMode.create(kind);
+    document.body.classList.add("demo");
+    document.body.insertAdjacentHTML("afterbegin", `<div class="demobar"><span>Demo with sample data. Nothing you tap here is saved.</span><a href="${esc(DEMO_CTA.url)}">${esc(DEMO_CTA.text)}</a></div>`);
+    const back = () => { location.href = location.pathname + "?demo=" + encodeURIComponent(kind); };
+    if (kind === "coach") {
+      tabs.style.display = "none";
+      document.addEventListener("click", e => {
+        const a = e.target.closest('a[href^="?preview="]'); if (!a) return;
+        e.preventDefault();
+        location.href = location.pathname + "?demo=1&as=" + encodeURIComponent(new URLSearchParams(a.getAttribute("href").slice(1)).get("preview"));
+      });
+      startCoach({ sb: demo.sb, userId: "demo-coach", logout: back, switchToMe: back });
+    } else {
+      const c = demo.client(as);
+      tabs.style.display = "";
+      startClient({ sb: demo.sb, userId: c.id, config: c.config, logs: c.logs, messages: c.messages, logout: back });
+    }
+  }
+  const demoKind = new URLSearchParams(location.search).get("demo");
+  if (demoKind && window.DemoMode) { startDemo(demoKind === "coach" ? "coach" : "client", new URLSearchParams(location.search).get("as")); return; }
+
   if (typeof supabase === "undefined") {
     tabs.style.display = "none";
     view.innerHTML = `<div class="login"><h1>Can't connect</h1><p class="muted">The app couldn't load. Check your internet connection and refresh.</p></div>`;
