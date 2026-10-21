@@ -58,6 +58,7 @@
       ${err ? `<div class="err">${esc(err)}</div>` : ""}${info ? `<div class="muted small" style="margin-bottom:10px">${esc(info)}</div>` : ""}
       <button class="btn" style="width:100%" type="submit">Log in</button>
       <div style="text-align:center;margin-top:14px"><a href="#" id="fg" class="muted small">Forgot password?</a></div></form>
+      <a class="btn ghost" style="width:100%;display:block;text-align:center;box-sizing:border-box;text-decoration:none;margin-bottom:12px" href="${location.pathname}?demo=1">Just looking? Try it out (sample data)</a>
       <p class="muted small">You'll stay logged in on this device. Tap "Save password" if your phone offers it.</p>
       <p class="muted small"><a href="https://awwabidris21.github.io/Coaching-Policies-/terms.html" target="_blank" rel="noopener">Terms</a> &middot; <a href="https://awwabidris21.github.io/Coaching-Policies-/privacy.html" target="_blank" rel="noopener">Privacy</a></p></div>`;
     document.getElementById("fg").onclick = e => { e.preventDefault(); showForgot(); };
