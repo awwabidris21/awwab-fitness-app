@@ -220,11 +220,12 @@ window.startClient = function (ctx) {
         <div class="phl"><span>${esc(p.a)}</span>${ctx.readOnly ? "" : `<button class="x" data-act="delphoto" data-d="${k}" data-p="${esc(p.p)}" aria-label="Delete photo">&times;</button>`}</div></div>`).join("")}</div></div>`).join("");
   }
 
+  const brandRow = `<div class="brandrow"><picture class="brandmark"><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=38"><img src="logo-wordmark-light.png?v=38" alt="Awwab Fitness"></picture></div>`;
   function header(title, sub, back) {
     const isToday = date === realToday;
-    if (back) return `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div><button class="btn ghost" data-go="home">Back</button></div>`;
-    if (!DAY_TABS.includes(tab)) return `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div></div>`;
-    return `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
+    if (back) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div><button class="btn ghost" data-go="home">Back</button></div>`;
+    if (!DAY_TABS.includes(tab)) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div></div>`;
+    return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
       <div class="datenav"><button data-act="prev" aria-label="Previous day">&lsaquo;</button><button data-act="next" aria-label="Next day" ${isToday ? "disabled" : ""}>&rsaquo;</button></div></div>`;
   }
 
@@ -239,7 +240,7 @@ window.startClient = function (ctx) {
 
   /* ---------- food search & logging ---------- */
   const OZ = 28.3495;
-  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {}, slot: null };
+  const fs = { q: "", off: [], offMsg: "", busy: false, sel: null, unit: "g", amt: "", manual: false, man: {}, slot: null, open: false, tab: "search", focus: false };
   const SLOTS = ["Breakfast", "Lunch", "Dinner", "Snack"];
   const slotNow = () => { const h = new Date().getHours(); return h < 11 ? "Breakfast" : h < 16 ? "Lunch" : h < 21 ? "Dinner" : "Snack"; };
   const curSlot = () => fs.slot || slotNow();
@@ -269,7 +270,7 @@ window.startClient = function (ctx) {
   }
   const foodRow = (f, src, i) => `<button class="opt" data-act="fpick" data-src="${src}" data-i="${i}"><strong>${esc(f.n)}</strong><span class="muted small"> ${Math.round(f.k)} cal, P ${r1(f.p)} / F ${r1(f.f)} / C ${r1(f.c)} per 100 g</span></button>`;
   function foodResults() {
-    if (!fs.q.trim()) return quickAdd();
+    if (!fs.q.trim()) return fs.sel ? "" : `<div class="muted" style="padding:8px 0">Type a food above, or tap Scan to read a barcode.</div>`;
     const loc = localFoods(fs.q);
     let h = loc.map((f, i) => foodRow(f, "l", i)).join("");
     h += fs.off.map((f, i) => foodRow(f, "o", i)).join("");
@@ -278,10 +279,10 @@ window.startClient = function (ctx) {
     if (fs.offMsg) h += `<div class="muted small">${esc(fs.offMsg)}</div>`;
     return h;
   }
-  function recentFoods() {
+  function recentFoods(max) {
     const seen = new Set(), out = [];
     Object.keys(S.days).filter(k => k <= date).sort().reverse().forEach(k => (S.days[k].foods || []).slice().reverse().forEach(x => {
-      const key = x.n + "|" + x.cal; if (!seen.has(key) && out.length < 6) { seen.add(key); out.push(x); }
+      const key = x.n + "|" + x.cal; if (!seen.has(key) && out.length < (max || 6)) { seen.add(key); out.push(x); }
     }));
     return out;
   }
@@ -351,7 +352,7 @@ window.startClient = function (ctx) {
       const n = p.nutriments, sq = parseFloat(p.serving_quantity);
       const item = { n: (p.product_name || "Scanned food") + (p.brands ? " (" + p.brands.split(",")[0].trim() + ")" : ""), k: +n["energy-kcal_100g"] || 0, p: +n.proteins_100g || 0, f: +n.fat_100g || 0, c: +n.carbohydrates_100g || 0,
         u: sq > 0 ? [["serving" + (p.serving_size ? " (" + p.serving_size + ")" : ""), sq]] : [] };
-      fs.sel = item; fs.manual = false; fs.q = "";
+      fs.sel = item; fs.manual = false; fs.q = ""; fs.open = true; fs.tab = "search";
       if (item.u.length) { fs.unit = item.u[0][0]; fs.amt = "1"; } else { fs.unit = "g"; fs.amt = ""; }
       return "";
     } catch (e) { return "Couldn't reach the food database. Check your connection and try again."; }
@@ -417,20 +418,62 @@ window.startClient = function (ctx) {
     fs.busy = false; refreshFood();
   }
   function refreshFood() { const el = document.getElementById("fres"); if (el) el.innerHTML = foodResults(); }
-  function foodCard(d) {
-    const list = d.foods || [];
-    let h = `<h2>Log a food</h2><div class="card">`;
-    {
-      if (!ctx.readOnly) h += `<div class="muted small" style="margin-bottom:6px">Adding to</div><div class="chips" style="margin:0 0 10px">${SLOTS.map(s => `<button class="chipbtn ${curSlot() === s ? "on" : ""}" data-act="fslot" data-v="${s}">${s}</button>`).join("")}</div>`;
-      h += `<label class="field" for="fq">Search a food you ate</label><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="e.g. chicken breast, banana, Greek yogurt" value="${esc(fs.q)}">
-        ${ctx.readOnly ? "" : `<button class="linkbtn" data-act="fscan" style="margin-top:6px">Scan a barcode</button>`}<div id="fres" style="margin-top:6px">${foodResults()}</div>${foodPanel()}${manualPanel()}${savedPanel()}`;
+  /* ---------- MEALS: diary by meal + add-food sheet ---------- */
+  const macroLine = (p, c, f) => `P ${r1(+p || 0)}g &middot; C ${r1(+c || 0)}g &middot; F ${r1(+f || 0)}g`;
+  function mealSummary(d) {
+    const done = consumed(d), T = C.targets, left = Math.round(T.calories - done.cal);
+    const col = (lab, v, t) => `<div class="msum-c"><div class="l">${lab}</div><div class="v">${Math.round(v)}<span> / ${t}g</span></div><div class="bar"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
+    return `<div class="msum"><div class="msum-top"><div><div class="l">Calories</div><div class="big">${done.cal.toLocaleString()}<span class="muted"> / ${T.calories.toLocaleString()}</span></div></div>
+      <div class="msum-left ${left < 0 ? "over" : ""}"><b>${Math.abs(left).toLocaleString()}</b><span>${left >= 0 ? "left today" : "over"}</span></div></div>
+      <div class="bar ${done.cal >= T.calories * 0.9 && done.cal <= T.calories * 1.1 ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
+      <div class="msum-cols">${col("Protein", done.p, T.protein)}${col("Carbs", done.c, T.carbs)}${col("Fat", done.f, T.fat)}</div></div>`;
+  }
+  function loggedRow(x, i, showSlot) {
+    return `<div class="frow"><div class="frow-main"><div class="fn">${esc(x.n)}</div><div class="fm">${showSlot && x.slot ? esc(x.slot) + " &middot; " : ""}${esc(x.amt || "")}</div><div class="fm">${macroLine(x.p, x.c, x.f)}</div></div>
+      <div class="frow-r"><div class="fc">${Math.round(x.cal)}<span> cal</span></div>${ctx.readOnly ? "" : `<div class="fa"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button><button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></div>`}</div></div>`;
+  }
+  const addBtn = slot => ctx.readOnly ? "" : `<button class="addfood" data-act="fopen" data-slot="${esc(slot)}"><span>+</span> Add food</button>`;
+  function slotSection(slot, items) {
+    const tot = items.reduce((a, o) => ({ cal: a.cal + (+o.x.cal || 0), p: a.p + (+o.x.p || 0), c: a.c + (+o.x.c || 0), f: a.f + (+o.x.f || 0) }), { cal: 0, p: 0, c: 0, f: 0 });
+    return `<section class="mseg"><div class="mhead"><h3>${slot === "Snack" ? "Snacks" : esc(slot)}</h3><div class="mtot">${items.length ? Math.round(tot.cal) + " cal" : ""}</div></div>
+      ${items.length ? `<div class="mtotm">${macroLine(tot.p, tot.c, tot.f)}</div>` + items.map(o => loggedRow(o.x, o.i)).join("") : `<div class="mempty">Nothing logged yet</div>`}${addBtn(slot)}</section>`;
+  }
+  function swapPanel(m, i, d) {
+    const cur = (d.mv || {})[i] || 0, c = (d.custom || {})[i] || {};
+    const opt = (val, label, sub) => `<button class="opt ${String(cur) === String(val) ? "on" : ""}" data-act="mealopt" data-i="${i}" data-v="${val}"><strong>${esc(label)}</strong>${sub ? `<span class="muted small"> ${esc(sub)}</span>` : ""}</button>`;
+    const fld = (k, label, val) => `<div><label class="field">${label}</label><input type="number" inputmode="numeric" data-f="cust" data-i="${i}" data-k="${k}" value="${val || ""}"></div>`;
+    return `<div class="swapbox"><div class="muted small" style="margin-bottom:8px">What did you eat for ${esc(m.name.toLowerCase())}?</div>
+      ${opt(0, "As planned", m.cal + " cal")}${(m.swaps || []).map((sw, k) => opt(k + 1, sw.name, sw.cal + " cal")).join("")}${opt("c", "Something else", "enter it below")}
+      ${cur === "c" ? `<div style="margin-top:10px"><label class="field">What was it?</label><input type="text" data-f="cust" data-i="${i}" data-k="note" value="${esc(c.note || "")}">
+        <div class="grid2" style="margin-top:8px">${fld("cal", "Calories", c.cal)}${fld("p", "Protein (g)", c.p)}${fld("c", "Carbs (g)", c.c)}${fld("f", "Fat (g)", c.f)}</div>
+        <div class="muted small" style="margin-top:6px">A rough guess is fine. Leave blank if you don't know.</div></div>` : ""}</div>`;
+  }
+  function planSection(m, i, d) {
+    const v = mealVariant(m, i, d), eaten = !!d.meals[i];
+    return `<section class="mseg plan ${eaten ? "eaten" : ""}"><div class="mhead tap" data-act="meal" data-i="${i}" role="checkbox" aria-checked="${eaten}" tabindex="0"><div><h3>${esc(m.name)}</h3>${v.label ? `<span class="badge">${esc(v.label)}</span>` : ""}</div>
+        <div class="eatchip ${eaten ? "on" : ""}"><span class="tick">${eaten ? "&#10003;" : ""}</span>${eaten ? "Eaten" : "Mark eaten"}</div></div>
+      ${m.note ? `<div class="mnote">${esc(m.note)}</div>` : ""}
+      <ul class="mitems">${v.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <div class="mstats"><div><b>${v.cal}</b><span>cal</span></div><div><b>${v.p}g</b><span>protein</span></div><div><b>${v.c}g</b><span>carbs</span></div><div><b>${v.f}g</b><span>fat</span></div></div>
+      ${ctx.readOnly ? "" : `<button class="linkbtn" data-act="swapopen" data-i="${i}">${swapOpen[i] ? "Close" : "Swap or change this meal"}</button>`}
+      ${swapOpen[i] && !ctx.readOnly ? swapPanel(m, i, d) : ""}</section>`;
+  }
+  const FTABS = [["search", "Search"], ["recent", "Recent"], ["saved", "Saved"], ["manual", "By hand"]];
+  function sheetBody() {
+    if (fs.tab === "recent") {
+      const y = yesterdayFoods(), r = recentFoods(12);
+      return (y.length ? `<button class="opt" data-act="frepeat"><strong>Repeat yesterday's foods</strong><span class="muted small"> ${y.length} item${y.length > 1 ? "s" : ""}, ${Math.round(y.reduce((a, f) => a + (+f.cal || 0), 0))} cal</span></button>` : "")
+        + (r.length ? `<label class="field" style="margin-top:14px">Foods you've logged lately</label>` + r.map((f, i) => `<button class="opt" data-act="frecent" data-i="${i}"><strong>${esc(f.n)}</strong><span class="muted small"> ${Math.round(f.cal)} cal &middot; ${esc(f.amt || "")}</span></button>`).join("") : `<div class="muted">Foods you log will show up here for one-tap adding.</div>`);
     }
-    if (list.length) {
-      const row = (x, i) => `<div class="rowline" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>${esc(x.n)}</strong><div class="muted small">${esc(x.amt || "")} &middot; ${x.cal} cal, P ${x.p} / F ${x.f} / C ${x.c}</div></div>${ctx.readOnly ? "" : `<span style="white-space:nowrap"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button> <button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></span>`}</div>`;
-      const groups = SLOTS.concat("Other").map(s => ({ s, items: list.map((x, i) => ({ x, i })).filter(o => (SLOTS.includes(o.x.slot) ? o.x.slot : "Other") === s) })).filter(g => g.items.length);
-      h += `<div class="${ctx.readOnly ? "" : "foodlist"}" style="margin-top:12px">` + groups.map(g => `<div class="slothead"><span>${g.s === "Other" && groups.length === 1 ? "Foods" : g.s}</span><span>${g.items.reduce((a, o) => a + (+o.x.cal || 0), 0)} cal</span></div>` + g.items.map(o => row(o.x, o.i)).join("")).join("") + `</div>`;
-    } else if (ctx.readOnly) h += `<div class="muted small">No extra foods logged.</div>`;
-    return h + `</div>`;
+    if (fs.tab === "saved") return (saved && saved.length ? savedPanel().replace(/^<div style="[^"]*">/, "<div>").replace('<label class="field">Your saved meals</label>', "") : `<div class="muted">Tap Save on any food you've logged and it will be here for next time.</div>${savedNote ? `<div class="muted small" style="margin-top:8px">${esc(savedNote)}</div>` : ""}`);
+    if (fs.tab === "manual") return manualPanel();
+    return `<div class="srch"><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="Search chicken, rice, Greek yogurt..." value="${esc(fs.q)}"><button class="btn ghost sm" data-act="fscan">Scan</button></div>
+      <div id="fres">${foodResults()}</div>${foodPanel()}`;
+  }
+  function addSheet() {
+    if (!fs.open || ctx.readOnly) return "";
+    return `<div class="sheet-ov"><div class="sheet-p" role="dialog" aria-label="Add food"><div class="sheet-h"><div><div class="eyebrow" style="margin:0 0 4px">Add to</div><h3>${esc(curSlot() === "Snack" ? "Snacks" : curSlot())}</h3></div><button class="btn ghost sm" data-act="fclose">Done</button></div>
+      <div class="seg2">${FTABS.map(t => `<button data-act="ftab" data-v="${t[0]}" class="${fs.tab === t[0] ? "on" : ""}">${t[1]}</button>`).join("")}</div>${sheetBody()}</div></div>`;
   }
   const pctOf = (v, t) => (t ? Math.max(0, Math.min(100, Math.round(v / t * 100))) : 0);
 
@@ -552,6 +595,34 @@ window.startClient = function (ctx) {
     return h;
   }
 
+  /* ---------- form videos ("How to") ---------- */
+  let howEx = null;
+  const normName = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  function formInfo(ex) {
+    const n = normName(ex), pick = src => { if (!src) return null; const k = Object.keys(src).find(x => normName(x) === n); if (!k) return null; const v = src[k]; return typeof v === "string" ? { url: v, cues: [] } : v; };
+    const f = pick(C.videos) || pick(window.FORM_VIDEOS);
+    return f && (f.url || (f.cues && f.cues.length)) ? f : null;
+  }
+  function embedFor(url) {
+    const u = String(url || "");
+    const yt = u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/))([A-Za-z0-9_-]{11})/);
+    if (yt) return { src: "https://www.youtube-nocookie.com/embed/" + yt[1] + "?rel=0&playsinline=1", vertical: /\/shorts\//.test(u) };
+    const vm = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+    if (vm) return { src: "https://player.vimeo.com/video/" + vm[1] };
+    if (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(u)) return { file: u };
+    return null;
+  }
+  function howSheet() {
+    if (!howEx) return "";
+    const f = formInfo(howEx); if (!f) return "";
+    const em = f.url ? embedFor(f.url) : null;
+    const player = em ? (em.src ? `<div class="vid ${em.vertical ? "vert" : ""}"><iframe src="${esc(em.src)}" title="${esc(howEx)} form video" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe></div>` : `<video class="vidfile" src="${esc(em.file)}" controls playsinline preload="metadata"></video>`)
+      : (f.url ? `<a class="btn" style="display:inline-block;text-decoration:none" href="${esc(f.url)}" target="_blank" rel="noopener">Watch the video</a>` : "");
+    return `<div class="sheet-ov"><div class="sheet-p" role="dialog" aria-label="How to do ${esc(howEx)}"><div class="sheet-h"><div><div class="eyebrow" style="margin:0 0 4px">How to do it</div><h3>${esc(howEx)}</h3></div><button class="btn ghost sm" data-act="hclose">Done</button></div>
+      ${player}${(f.cues || []).length ? `<h2 style="margin-top:22px">Key cues</h2><ul class="cues">${f.cues.map(c => `<li>${esc(c)}</li>`).join("")}</ul>` : ""}</div></div>`;
+  }
+  const howBtn = ex => formInfo(ex) ? `<button class="howbtn" data-act="how" data-ex="${esc(ex)}" aria-label="How to do ${esc(ex)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z"/></svg>How to</button>` : "";
+
   /* ---------- TRAINING ---------- */
   const topW = (k, ex) => Math.max(0, ...loggedSets(k, ex).map(s => parseFloat(s.w) || 0));
   const prevSessions = ex => Object.keys(S.lifts).filter(k => k < date && loggedSets(k, ex).length).sort();
@@ -627,13 +698,13 @@ window.startClient = function (ctx) {
             <input type="number" inputmode="numeric" placeholder="${esc(pv.r || "reps")}" data-lift="${xi}" data-set="${s}" data-fld="r" value="${v.r || ""}" aria-label="${esc(ex)} set ${s + 1} reps">`;
         }
         const last = lastSession(ex), hint = hintFor(ex);
-        return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3>${prBadge(ex)}</div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
+        return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3><span class="exr">${prBadge(ex)}${howBtn(ex)}</span></div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
       }).join("");
     }
     h += liftHistory(wk);
     h += `<h2>Weekly schedule</h2><div class="card">` + [1, 2, 3, 4, 5, 6, 0].map(i =>
       `<div class="rowline" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]}</span><strong>${esc(C.schedule[i])}</strong></div>`).join("") + `</div>`;
-    return h;
+    return h + howSheet();
   }
 
   /* ---------- NUTRITION ---------- */
@@ -656,48 +727,20 @@ window.startClient = function (ctx) {
 
   /* ---------- MEALS ---------- */
   function viewMeals() {
-    const d = dayRec(date);
-    const n = (d.meals || []).filter(Boolean).length;
-    if (!C.meals.length) {
-      const done = consumed(d), T = C.targets;
-      let h = header("Food log", niceDate(date));
-      h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
-        <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-        <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
-        <div class="muted small" style="margin-top:4px">Search each food you eat, enter how much, and it adds up here. Weigh food raw when you can.</div></div>`;
-      const mac = (label, v, t) => `<div class="macro"><div class="n">${Math.round(v)}g</div><div class="l">${label}</div><div class="t">of ${t}g</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
-      h += `<div class="macros">${mac("Protein", done.p, T.protein)}${mac("Carbs", done.c, T.carbs)}${mac("Fat", done.f, T.fat)}</div>`;
-      return h + foodCard(d);
+    const d = dayRec(date), planMode = C.meals.length > 0, list = d.foods || [];
+    let h = header(planMode ? "Meals" : "Food", niceDate(date));
+    h += mealSummary(d);
+    if (planMode) {
+      const n = d.meals.filter(Boolean).length;
+      h += `<h2>Your plan <span class="h2n">${n} of ${C.meals.length} eaten</span></h2>` + C.meals.map((m, i) => planSection(m, i, d)).join("");
+      h += `<h2>Extras</h2><div class="muted small" style="margin:-4px 0 10px">Ate something that isn't in your plan? Add it here so your numbers stay honest.</div>`;
+      h += `<section class="mseg">${list.length ? list.map((x, i) => loggedRow(x, i, true)).join("") : `<div class="mempty">No extra foods today</div>`}${addBtn(curSlot())}</section>`;
+      if (C.mealNote) h += `<div class="muted small" style="margin-top:14px">${esc(C.mealNote)}</div>`;
+    } else {
+      h += `<h2>Today</h2>` + SLOTS.map(sl => slotSection(sl, list.map((x, i) => ({ x, i })).filter(o => (SLOTS.includes(o.x.slot) ? o.x.slot : "Snack") === sl))).join("");
+      h += `<div class="muted small" style="margin-top:6px">Weigh food raw when you can. Search it, enter the weight, and it adds up here.</div>`;
     }
-    let h = header("Meal plan", niceDate(date));
-    h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${n} of ${C.meals.length} meals</span></div><div class="bar ${n === C.meals.length ? "good" : ""}"><i style="width:${pctOf(n, C.meals.length)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">Tap a meal when you've eaten it. Ate something that isn't in your plan? Search it under "Log a food" and enter the weight.</div></div>`;
-    h += foodCard(d);
-    h += `<h2>Your meal plan</h2>`;
-    h += C.meals.map((m, i) => {
-      const v = mealVariant(m, i, d);
-      let out = `<div class="card meal ${d.meals[i] ? "done" : ""}" data-act="meal" data-i="${i}" role="checkbox" aria-checked="${!!d.meals[i]}" tabindex="0">
-        <div class="check">${d.meals[i] ? "&#10003;" : ""}</div>
-        <div style="flex:1"><h3 style="color:var(--ink)">${esc(m.name)}${v.label ? ` <span class="badge">${esc(v.label)}</span>` : ""}</h3><div class="muted small">${esc(m.note)}</div>
-        <ul>${v.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-        <div class="mrow"><span>P ${v.p}g</span><span>F ${v.f}g</span><span>C ${v.c}g</span><span>${v.cal} cal</span></div>
-        <button class="linkbtn" data-act="swapopen" data-i="${i}">${swapOpen[i] ? "Close" : "Swap or change"}</button></div></div>`;
-      if (swapOpen[i] && !ctx.readOnly) {
-        const cur = (d.mv || {})[i] || 0;
-        const opt = (val, label, sub) => `<button class="opt ${String(cur) === String(val) ? "on" : ""}" data-act="mealopt" data-i="${i}" data-v="${val}"><strong>${esc(label)}</strong>${sub ? `<span class="muted small"> ${esc(sub)}</span>` : ""}</button>`;
-        const c = (d.custom || {})[i] || {};
-        const fld = (k, label, val) => `<div><label class="field">${label}</label><input type="number" inputmode="numeric" data-f="cust" data-i="${i}" data-k="${k}" value="${val || ""}"></div>`;
-        out += `<div class="card swappanel"><div class="muted small" style="margin-bottom:8px">What did you eat for ${esc(m.name.toLowerCase())}?</div>
-          ${opt(0, "As planned", m.cal + " cal")}
-          ${(m.swaps || []).map((s, k) => opt(k + 1, s.name, s.cal + " cal")).join("")}
-          ${opt("c", "Something else", "enter it below")}
-          ${cur === "c" ? `<div style="margin-top:10px"><label class="field">What was it?</label><input type="text" data-f="cust" data-i="${i}" data-k="note" value="${esc(c.note || "")}">
-            <div class="grid2" style="margin-top:8px">${fld("cal", "Calories", c.cal)}${fld("p", "Protein (g)", c.p)}${fld("c", "Carbs (g)", c.c)}${fld("f", "Fat (g)", c.f)}</div>
-            <div class="muted small" style="margin-top:6px">A rough guess is fine. Leave blank if you don't know.</div></div>` : ""}</div>`;
-      }
-      return out;
-    }).join("") + `<div class="muted small">${esc(C.mealNote)}</div>`;
-    return h;
+    return h + addSheet();
   }
 
   /* ---------- NOTES ---------- */
@@ -723,6 +766,7 @@ window.startClient = function (ctx) {
       <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>
       <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
+    h += `<div class="brandfoot"><img src="icon-192.png?v=38" alt="" width="56" height="56"><div><strong>Awwab Fitness</strong><div class="muted small">12-week coaching &middot; Est. 2026</div></div></div>`;
     h += `<div class="muted small" style="margin-top:18px;text-align:center"><a href="https://awwabidris21.github.io/Coaching-Policies-/terms.html" target="_blank" rel="noopener">Terms</a> &middot; <a href="https://awwabidris21.github.io/Coaching-Policies-/privacy.html" target="_blank" rel="noopener">Privacy</a></div>`;
     return h;
   }
@@ -892,14 +936,17 @@ window.startClient = function (ctx) {
     const hl = tab === "progress" || tab === "streaks" ? "home" : tab;
     document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === hl));
     hydratePhotos().catch(() => {});
+    document.body.classList.toggle("noscroll", (tab === "meals" && fs.open && !ctx.readOnly) || (tab === "training" && !!howEx));
+    if (tab === "meals" && fs.open && fs.focus) { fs.focus = false; const q = document.getElementById("fq"); if (q) q.focus(); }
   }
 
   document.addEventListener("click", e => {
+    if (e.target.classList && e.target.classList.contains("sheet-ov")) { fs.open = false; fs.sel = null; fs.manual = false; howEx = null; render(); return; }
     if (e.target.closest("input, textarea, select")) return;
     const t = e.target.closest("[data-tab],[data-act],[data-go]");
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) {
-      tab = t.dataset.tab || t.dataset.go; render(); window.scrollTo(0, 0);
+      tab = t.dataset.tab || t.dataset.go; fs.open = false; howEx = null; render(); window.scrollTo(0, 0);
       if (tab === "notes") refreshMsgs().then(() => { if (tab === "notes") { render(); } markRead(); }).catch(() => {});
       return;
     }
@@ -913,7 +960,7 @@ window.startClient = function (ctx) {
     if (t.dataset.act === "installx") { try { localStorage.setItem("installHint", "1"); } catch (e) {} render(); return; }
     if (t.dataset.act === "installgo") { if (window.__bip) { window.__bip.prompt(); window.__bip = null; } render(); return; }
     if (t.dataset.act === "resttoggle") { try { localStorage.setItem("restTimer", restOn() ? "off" : "on"); } catch (e) {} if (!restOn()) restStop(); render(); return; }
-    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff"].includes(t.dataset.act)) return;
+    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff", "how", "hclose"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }
     const d = dayRec(date);
@@ -925,6 +972,8 @@ window.startClient = function (ctx) {
       case "rate": { d.checkin = d.checkin || {}; const k = t.dataset.k, v = +t.dataset.v; d.checkin[k] = d.checkin[k] === v ? null : v; save(); break; }
       case "wtype": d.workout = t.dataset.v; save(); break;
       case "liftall": e.preventDefault(); showAllLifts = !showAllLifts; break;
+      case "how": howEx = t.dataset.ex; break;
+      case "hclose": howEx = null; break;
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
@@ -934,7 +983,7 @@ window.startClient = function (ctx) {
         const m = (saved || []).find(x => String(x.id) === t.dataset.id); if (!m) return;
         d.foods = d.foods || [];
         d.foods.push({ slot: curSlot(), n: m.name, amt: "saved meal", g: 0, cal: Math.round(m.cal), p: r1(m.p), f: r1(m.f), c: r1(m.c) });
-        savedNote = ""; save(); break;
+        savedNote = ""; fs.open = false; save(); break;
       }
       case "ssave": {
         const x = (d.foods || [])[+t.dataset.i]; if (!x) return;
@@ -953,24 +1002,27 @@ window.startClient = function (ctx) {
         break;
       }
       case "fslot": fs.slot = t.dataset.v; break;
-      case "frepeat": { d.foods = (d.foods || []).concat(yesterdayFoods().map(f => Object.assign({}, f))); save(); break; }
-      case "frecent": { const f = recentFoods()[+t.dataset.i]; if (!f) return; d.foods = d.foods || []; d.foods.push(Object.assign({}, f, { slot: curSlot() })); save(); break; }
+      case "frepeat": { d.foods = (d.foods || []).concat(yesterdayFoods().map(f => Object.assign({}, f))); fs.open = false; save(); break; }
+      case "frecent": { const f = recentFoods(12)[+t.dataset.i]; if (!f) return; d.foods = d.foods || []; d.foods.push(Object.assign({}, f, { slot: curSlot() })); fs.open = false; save(); break; }
+      case "fopen": fs.open = true; fs.tab = "search"; fs.focus = true; fs.sel = null; fs.manual = false; if (t.dataset.slot) fs.slot = t.dataset.slot; break;
+      case "fclose": fs.open = false; fs.sel = null; fs.manual = false; break;
+      case "ftab": fs.tab = t.dataset.v; fs.sel = null; fs.manual = t.dataset.v === "manual"; fs.focus = t.dataset.v === "search"; break;
       case "fmopen": fs.manual = true; fs.sel = null; break;
-      case "fmclose": fs.manual = false; fs.man = {}; break;
+      case "fmclose": fs.manual = false; fs.man = {}; fs.tab = "search"; break;
       case "fmadd": {
         const m = fs.man, p = +m.p || 0, c = +m.c || 0, f = +m.f || 0;
         const cal = m.cal !== "" && m.cal != null && !isNaN(+m.cal) ? Math.round(+m.cal) : Math.round(p * 4 + c * 4 + f * 9);
         if (!cal && !p && !c && !f) return;
         d.foods = d.foods || [];
         d.foods.push({ slot: curSlot(), n: (m.n || "").trim() || "Quick add", amt: "entered by hand", g: 0, cal, p: r1(p), f: r1(f), c: r1(c) });
-        fs.manual = false; fs.man = {}; save(); break;
+        fs.manual = false; fs.man = {}; fs.open = false; save(); break;
       }
       case "foff": searchOff(); return;
       case "fadd": {
         const x = foodCalc(); if (!x) return;
         d.foods = d.foods || [];
         d.foods.push({ slot: curSlot(), n: fs.sel.n, amt: fs.amt + " " + (fs.unit.length > 22 ? fs.unit.split(" (")[0] : fs.unit), g: x.g, cal: x.cal, p: x.p, f: x.f, c: x.c });
-        fs.sel = null; fs.q = ""; fs.off = []; fs.offMsg = ""; fs.amt = ""; save(); break;
+        fs.sel = null; fs.q = ""; fs.off = []; fs.offMsg = ""; fs.amt = ""; fs.open = false; save(); break;
       }
       case "fdel": if (d.foods) { d.foods.splice(+t.dataset.i, 1); save(); } break;
       case "ciopen": checkinOpen = true; break;
@@ -1035,7 +1087,7 @@ window.startClient = function (ctx) {
     }
   });
 
-  { const mb = document.querySelector('#tabs [data-tab="meals"]'); if (mb) mb.textContent = C.meals.length ? "Meals" : "Food"; }
+  { const mb = document.querySelector('#tabs [data-tab="meals"]'); if (mb) mb.querySelector("span").textContent = C.meals.length ? "Meals" : "Food"; }
   function showWelcome() {
     if (ctx.readOnly || ctx.isSelf || Object.keys(S.days).length > 3) return;
     const key = "welcomed_" + ctx.userId;

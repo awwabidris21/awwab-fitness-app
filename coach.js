@@ -388,7 +388,7 @@ window.startCoach = function (ctx) {
 
   /* ---------- views ---------- */
   function topbar(title, sub, back) {
-    return `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
+    return `<div class="brandrow"><picture class="brandmark"><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=38"><img src="logo-wordmark-light.png?v=38" alt="Awwab Fitness"></picture></div><div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
       <div class="btns" style="margin:0">${back ? `<button class="btn ghost" data-c="back">Back</button>` : ""}<button class="btn ghost" data-c="myapp">My app</button><button class="btn ghost" data-c="logout">Log out</button></div></div>`;
   }
 
