@@ -217,3 +217,15 @@ body.demo [data-act="logout"], body.demo [data-c="logout"], body.demo [data-c="m
 
 .phase { font-size: 13px; color: var(--slate); margin-top: 2px; }
 .phase.focus { color: var(--amber); font-weight: 600; }
+
+/* coach call brief */
+.brief .brow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.brief .brow:last-child { border-bottom: 0; }
+.brief .bl { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+.brief .bv { text-align: right; font-size: 14px; }
+.brief .bv.bad { color: var(--bad); font-weight: 600; } .brief .bv.mid { color: var(--amber); font-weight: 600; } .brief .bv.ok { color: var(--good); font-weight: 600; } .brief .bv.na { color: var(--slate); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.good { background: var(--good); } .dot.mid { background: var(--amber); } .dot.bad { background: var(--bad); } .dot.na { background: var(--line); }
+.bh { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 15px; }
+.bh.bad { color: var(--bad); } .bh.good { color: var(--good); }
+.bl2 { margin: 6px 0 0; padding-left: 20px; } .bl2 li { margin-bottom: 3px; font-size: 14px; }

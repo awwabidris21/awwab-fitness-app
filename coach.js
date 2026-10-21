@@ -219,6 +219,92 @@ window.startCoach = function (ctx) {
     return { lines, q: q.slice(0, 7) };
   }
 
+  /* ---------- call brief: a scannable view of yesterday for the daily call ---------- */
+  const STEP_GOAL = 10000, SLEEP_GOAL = 7;
+  function brief(id) {
+    const cfg = configs[id] || {}, T = cfg.targets || {}, y = rec(id, yesterday), d = y.day, sc = scoreOf(d);
+    const rows = [], bad = [], well = [];
+    const row = (label, val, st) => rows.push({ label, val, st });
+    // weigh-in
+    if (d.weight) { row("Weigh-in", d.weight + " lbs", "ok"); } else { row("Weigh-in", "Not logged", "bad"); bad.push("Didn't weigh in"); }
+    // steps
+    const st = d.steps || 0;
+    if (st >= STEP_GOAL * 0.9) { row("Steps", st.toLocaleString(), "ok"); well.push("Steps " + st.toLocaleString()); }
+    else if (st >= 7000) { row("Steps", st.toLocaleString() + " of " + STEP_GOAL.toLocaleString(), "mid"); bad.push("Steps " + st.toLocaleString() + " of " + STEP_GOAL.toLocaleString()); }
+    else { row("Steps", st ? st.toLocaleString() + " of " + STEP_GOAL.toLocaleString() : "Not logged", "bad"); bad.push(st ? "Steps only " + st.toLocaleString() : "Steps not logged"); }
+    // sleep
+    const sh = d.sleepHrs || 0;
+    if (sh >= SLEEP_GOAL) { row("Sleep", sh + " h", "ok"); well.push("Slept " + sh + " h"); }
+    else if (sh >= 6) { row("Sleep", sh + " h", "mid"); bad.push("Slept only " + sh + " h"); }
+    else { row("Sleep", sh ? sh + " h" : "Not logged", "bad"); bad.push(sh ? "Slept only " + sh + " h" : "Sleep not logged"); }
+    // water
+    const wt = T.water || 120, w = d.water || 0;
+    if (w >= wt * 0.9) { row("Water", w + " oz", "ok"); } else if (w >= wt * 0.7) { row("Water", w + " of " + wt + " oz", "mid"); bad.push("Water " + w + " of " + wt + " oz"); }
+    else { row("Water", w ? w + " of " + wt + " oz" : "Not logged", "bad"); bad.push(w ? "Water only " + w + " oz" : "Water not logged"); }
+    // food
+    const tot = dayCalories(cfg, d), cal = Math.round(tot.cal), pro = Math.round(tot.p), mealsN = (cfg.meals || []).length;
+    if (!cal) { row("Food", mealsN ? "Nothing checked off" : "Nothing logged", "bad"); bad.push("No food logged"); }
+    else {
+      const r = T.calories ? cal / T.calories : 1, label = cal.toLocaleString() + (T.calories ? " / " + T.calories.toLocaleString() : "") + " cal" + (T.protein ? " \u00b7 P " + pro + "/" + T.protein + "g" : "");
+      if (r >= 0.9 && r <= 1.1) { row("Food", label, "ok"); well.push("Calories on target (" + cal.toLocaleString() + ")"); }
+      else if (r >= 0.75 && r <= 1.25) { row("Food", label, "mid"); bad.push(r < 1 ? "Calories under (" + cal.toLocaleString() + " of " + T.calories.toLocaleString() + ")" : "Calories over (" + cal.toLocaleString() + " of " + T.calories.toLocaleString() + ")"); }
+      else { row("Food", label, "bad"); bad.push(r < 1 ? "Calories way under (" + cal.toLocaleString() + " of " + T.calories.toLocaleString() + ")" : "Calories way over (" + cal.toLocaleString() + " of " + T.calories.toLocaleString() + ")"); }
+      if (T.protein) { if (pro >= T.protein * 0.9) well.push("Protein " + pro + "g"); else bad.push("Protein " + pro + " of " + T.protein + "g"); }
+    }
+    // training
+    const ex = exDone(cfg, yesterday, y);
+    if (ex.wk === "Rest" || !ex.wk) row("Training", "Rest day", "na");
+    else if (ex.total && ex.done === ex.total) { row("Training", ex.wk + " " + ex.done + "/" + ex.total, "ok"); well.push("Finished " + ex.wk + " (" + ex.done + "/" + ex.total + ")"); }
+    else if (ex.done > 0) { row("Training", ex.wk + " " + ex.done + "/" + ex.total, "mid"); bad.push(ex.wk + ": " + ex.done + " of " + ex.total + " exercises"); }
+    else { row("Training", ex.wk + " 0/" + ex.total, "bad"); bad.push("Nothing logged for " + ex.wk); }
+    // check-in
+    if (!sc) { row("Check-in", "Not submitted", "bad"); bad.push("No check-in"); }
+    else {
+      const lo = Math.min(sc.n, sc.i, sc.s);
+      row("Check-in", "Nutrition " + sc.n + " \u00b7 Intensity " + sc.i + " \u00b7 Sleep " + sc.s, lo >= 4 ? "ok" : lo === 3 ? "mid" : "bad");
+      if (sc.n <= 2) bad.push("Rated nutrition " + sc.n); if (sc.i <= 2) bad.push("Rated intensity " + sc.i); if (sc.s <= 2) bad.push("Rated sleep " + sc.s);
+      if (sc.h && sc.h >= 4) bad.push("Hunger " + sc.h + "/5"); if (sc.e && sc.e <= 2) bad.push("Energy " + sc.e + "/5");
+    }
+    if (d.offPlan && d.offPlan.on) bad.push("Ate off plan" + (d.offPlan.note ? ": " + d.offPlan.note : ""));
+    // new bests
+    Object.keys(cfg.workouts || {}).flatMap(k => cfg.workouts[k]).forEach(e => {
+      const t = topW(y, e); if (!t) return;
+      const before = Math.max(0, ...Object.keys(logs[id] || {}).filter(k => k < yesterday).map(k => topW(logs[id][k], e)));
+      if (before && t > before) well.push("New best: " + e + " " + t + " lbs");
+    });
+    // 7-day trend
+    const days = dateList(yesterday, 7), recs = days.map(k => rec(id, k).day);
+    const ci = recs.filter(scoreOf).length, stepsA = recs.filter(x => x.steps).map(x => x.steps), sleepA = recs.filter(x => x.sleepHrs).map(x => x.sleepHrs);
+    const trend = [ci + "/7 check-ins"];
+    if (stepsA.length) trend.push("avg " + Math.round(avg(stepsA)).toLocaleString() + " steps");
+    if (sleepA.length) trend.push("avg " + r1(avg(sleepA)) + " h sleep");
+    const ws = weightSeries(id);
+    const w1 = ws.filter(x => toDate(x.date) > daysAgo(7)), w0 = ws.filter(x => toDate(x.date) <= daysAgo(7) && toDate(x.date) > daysAgo(14));
+    if (w1.length && w0.length) { const chg = r1(avg(w1.map(x => x.w)) - avg(w0.map(x => x.w))); trend.push("weight avg " + (chg > 0 ? "+" : "") + chg + " lb vs the week before"); }
+    else if (ws.length) trend.push("weight " + ws[ws.length - 1].w + " lbs");
+    // today
+    const tw = sessionName(cfg, today, rec(id, today).day);
+    const todayLine = (tw ? tw : "No session") + (T.calories ? " \u00b7 " + T.calories.toLocaleString() + " cal" + (T.protein ? " \u00b7 P " + T.protein + " / C " + (T.carbs || "?") + " / F " + (T.fat || "?") : "") : "");
+    return { rows, bad, well, trend: trend.join(" \u00b7 "), today: todayLine, talk: callSheet(id).q };
+  }
+
+  /* private call notes live in the COACH's own config (clients can't read it), with a device fallback */
+  const NOTES_KEY = "coachCallNotes";
+  function notesFor(id) {
+    const own = configs[ctx.userId];
+    if (own && own.coachCallNotes) return own.coachCallNotes[id] || [];
+    try { return (JSON.parse(localStorage.getItem(NOTES_KEY) || "{}")[id]) || []; } catch (e) { return []; }
+  }
+  async function saveNote(id, text) {
+    const list = notesFor(id).filter(n => n.date !== today).concat(text ? [{ date: today, text }] : []).slice(-60);
+    const own = configs[ctx.userId];
+    if (own && own.meals) {
+      const cfg = JSON.parse(JSON.stringify(own)); cfg.coachCallNotes = Object.assign({}, cfg.coachCallNotes, { [id]: list });
+      return upsertConfig(ctx.userId, cfg);
+    }
+    try { const all = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}"); all[id] = list; localStorage.setItem(NOTES_KEY, JSON.stringify(all)); return true; } catch (e) { notice = "Couldn't save the note on this device."; return false; }
+  }
+
   /* ---------- weekly report ---------- */
   function weekly(id) {
     const cfg = configs[id] || {};
@@ -306,12 +392,26 @@ window.startCoach = function (ctx) {
       <div class="btns" style="margin:0">${back ? `<button class="btn ghost" data-c="back">Back</button>` : ""}<button class="btn ghost" data-c="myapp">My app</button><button class="btn ghost" data-c="logout">Log out</button></div></div>`;
   }
 
-  function sheetHtml(id) {
-    const cs = callSheet(id);
-    return `<div class="sheet"><div class="eyebrow" style="margin-bottom:4px">For your call</div>
-      ${cs.lines.map(l => `<div class="small">${esc(l)}</div>`).join("")}
-      ${cs.q.length ? `<ol class="qs">${cs.q.map(x => `<li>${esc(x)}</li>`).join("")}</ol>` : `<div class="muted small" style="margin-top:6px">Nothing flagged. Ask how they're feeling.</div>`}
-      <div class="btns" style="margin-top:6px"><button class="btn ghost" data-c="copysheet" data-id="${esc(id)}">Copy call notes</button></div></div>`;
+  const DOT = { ok: "good", mid: "mid", bad: "bad", na: "na" };
+  // compact = the client list card; full = the client's page, with the whole brief and call notes
+  function sheetHtml(id, full) {
+    const b = brief(id);
+    if (!full) {
+      return `<div class="sheet"><div class="eyebrow" style="margin-bottom:4px">Yesterday</div>
+        ${b.bad.length ? `<div>${b.bad.slice(0, 5).map(x => `<span class="flag">${esc(x)}</span>`).join("")}${b.bad.length > 5 ? `<span class="muted small"> +${b.bad.length - 5} more</span>` : ""}</div>` : `<div class="small"><b style="color:var(--good)">All on track.</b> Nothing missed.</div>`}
+        <div class="muted small" style="margin-top:6px">Open for the full call brief.</div></div>`;
+    }
+    const notes = notesFor(id), last = notes.filter(n => n.date !== today).pop(), mine = notes.find(n => n.date === today);
+    return `<div class="brief"><div class="eyebrow">Call brief \u00b7 yesterday, ${esc(short(yesterday))}</div>
+      <div class="card" style="padding:6px 14px">${b.rows.map(r => `<div class="brow"><span class="bl"><i class="dot ${DOT[r.st]}"></i>${esc(r.label)}</span><span class="bv ${r.st}">${esc(r.val)}</span></div>`).join("")}</div>
+      <div class="card"><div class="bh bad">Fell short</div>${b.bad.length ? `<ul class="bl2">${b.bad.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<div class="small">Nothing. Great day.</div>`}
+        <div class="bh good" style="margin-top:12px">Went well</div>${b.well.length ? `<ul class="bl2">${b.well.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<div class="small muted">Nothing stood out. Find something to praise.</div>`}</div>
+      <div class="card"><div class="bh">Talk about</div>${b.talk.length ? `<ol class="qs">${b.talk.slice(0, 3).map(x => `<li>${esc(x)}</li>`).join("")}</ol>${b.talk.length > 3 ? `<details><summary class="muted small">${b.talk.length - 3} more</summary><ol class="qs" start="4">${b.talk.slice(3).map(x => `<li>${esc(x)}</li>`).join("")}</ol></details>` : ""}` : `<div class="small">Nothing flagged. Ask how they're feeling and what's coming up this week.</div>`}</div>
+      <div class="card"><div class="small"><b>Today:</b> ${esc(b.today)}</div><div class="small" style="margin-top:4px"><b>Last 7 days:</b> ${esc(b.trend)}</div></div>
+      <div class="card"><div class="bh">Call notes <span class="muted small" style="text-transform:none;letter-spacing:0">(private, only you see these)</span></div>
+        ${last ? `<div class="small" style="margin:6px 0 10px"><b>Last call (${esc(short(last.date))}):</b> ${esc(last.text)}</div>` : ""}
+        <textarea id="call-note" placeholder="What did you talk about? What did they commit to?">${esc(mine ? mine.text : "")}</textarea>
+        <div class="btns"><button class="btn" data-c="savenote" data-id="${esc(id)}">Save notes</button><button class="btn ghost" data-c="copysheet" data-id="${esc(id)}">Copy brief</button></div></div></div>`;
   }
 
   // Which phase of the 12 weeks a client is in. Month 1 needs the most attention.
@@ -385,7 +485,7 @@ window.startCoach = function (ctx) {
 
     const A = "text-decoration:none;display:inline-flex;align-items:center";
     if (!isMe) h += `<div class="btns"><a class="btn" style="${A}" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a><a class="btn ghost" style="${A}" href="?results=${encodeURIComponent(selected)}">Results page</a></div>`;
-    if (!isMe) h += sheetHtml(selected);
+    if (!isMe) h += sheetHtml(selected, true);
     h += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${isMe ? "my" : esc(c.name || "client") + "'s"} data (CSV)</button></div>`;
     h += weightChartCard(selected);
 
@@ -519,8 +619,14 @@ window.startCoach = function (ctx) {
     if (a === "back") { selected = null; notice = ""; render(); return; }
     if (a === "open") { openClient(t.dataset.id); return; }
     if (a === "copysheet") {
-      const cs = callSheet(t.dataset.id), c = clients.find(x => x.id === t.dataset.id);
-      copy(`${(c && c.name) || "Client"} - call notes\n` + cs.lines.join("\n") + "\n\nAsk:\n" + cs.q.map((x, i) => (i + 1) + ". " + x).join("\n")); return;
+      const b = brief(t.dataset.id), c = clients.find(x => x.id === t.dataset.id);
+      copy(`${(c && c.name) || "Client"} - call brief (${short(yesterday)})\n` + b.rows.map(r => `${r.st === "ok" ? "+" : r.st === "na" ? "-" : "!"} ${r.label}: ${r.val}`).join("\n")
+        + (b.bad.length ? "\n\nFell short:\n- " + b.bad.join("\n- ") : "") + (b.well.length ? "\n\nWent well:\n- " + b.well.join("\n- ") : "")
+        + "\n\nTalk about:\n" + b.talk.map((x, i) => (i + 1) + ". " + x).join("\n") + "\n\nToday: " + b.today + "\nLast 7 days: " + b.trend); return;
+    }
+    if (a === "savenote") {
+      const ok = await saveNote(t.dataset.id, document.getElementById("call-note").value.trim());
+      notice = ok ? "Call notes saved." : notice; render(true); return;
     }
     if (a === "copyreport") { copy(weekly(selected).text); return; }
     if (a === "usereview") {
