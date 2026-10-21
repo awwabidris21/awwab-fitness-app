@@ -580,10 +580,13 @@ window.startClient = function (ctx) {
     return "Last time: " + loggedSets(k, ex).map(s => `${s.w || "?"} &times; ${s.r}`).join(", ");
   }
 
-  function liftHistory() {
-    let h = `<h2>Lift progress</h2>`;
+  let showAllLifts = false;
+  // only = name of today's session: show just those exercises (with a link to see every lift). No arg = all lifts.
+  function liftHistory(only) {
+    const filtered = only && C.workouts[only] && !showAllLifts;
+    let h = `<h2>Lift progress${filtered ? " - " + esc(only) : ""}</h2>`;
     let any = false;
-    Object.keys(C.workouts).forEach(name => {
+    Object.keys(C.workouts).filter(name => !filtered || name === only).forEach(name => {
       C.workouts[name].forEach(ex => {
         const dates = Object.keys(S.lifts).filter(k => loggedSets(k, ex).length).sort().slice(-3).reverse();
         if (!dates.length) return;
@@ -595,7 +598,9 @@ window.startClient = function (ctx) {
           `<div class="rowline small" style="margin-top:6px"><span class="muted">${toDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span><span>${loggedSets(k, ex).map(s => `${s.w || "?"} &times; ${s.r}`).join(", ")}</span></div>`).join("") + `</div>`;
       });
     });
-    return h + (any ? "" : `<div class="card muted">Your logged lifts will show up here.</div>`);
+    h += any ? "" : `<div class="card muted">Your logged lifts will show up here.</div>`;
+    if (only && C.workouts[only] && Object.keys(C.workouts).length > 1) h += `<div style="text-align:center;margin:6px 0 10px"><a href="#" class="muted small" data-act="liftall">${showAllLifts ? "Show only " + esc(only) + " lifts" : "Show all lifts"}</a></div>`;
+    return h;
   }
 
   function viewTraining() {
@@ -625,7 +630,7 @@ window.startClient = function (ctx) {
         return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3>${prBadge(ex)}</div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
       }).join("");
     }
-    h += liftHistory();
+    h += liftHistory(wk);
     h += `<h2>Weekly schedule</h2><div class="card">` + [1, 2, 3, 4, 5, 6, 0].map(i =>
       `<div class="rowline" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]}</span><strong>${esc(C.schedule[i])}</strong></div>`).join("") + `</div>`;
     return h;
@@ -919,6 +924,7 @@ window.startClient = function (ctx) {
       case "water": d.water = Math.max(0, (d.water || 0) + (+t.dataset.v)); save(); break;
       case "rate": { d.checkin = d.checkin || {}; const k = t.dataset.k, v = +t.dataset.v; d.checkin[k] = d.checkin[k] === v ? null : v; save(); break; }
       case "wtype": d.workout = t.dataset.v; save(); break;
+      case "liftall": e.preventDefault(); showAllLifts = !showAllLifts; break;
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
