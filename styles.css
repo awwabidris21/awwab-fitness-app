@@ -383,3 +383,6 @@ body.noscroll { overflow: hidden; }
 .vid { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 4px; overflow: hidden; } .vid.vert { aspect-ratio: 9 / 16; max-height: 60vh; width: auto; margin: 0 auto; }
 .vid iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; } .vidfile { width: 100%; border-radius: 4px; background: #000; }
 .cues { margin: 0; padding-left: 20px; } .cues li { margin-bottom: 8px; font-size: 16px; }
+.brief { margin-top: 18px; }
+
+.frow.edit { display: block; }

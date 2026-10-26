@@ -51,7 +51,7 @@
 
   function showLogin(err, info) {
     tabs.style.display = "none";
-    view.innerHTML = `<div class="login"><div class="wm"><picture><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=38"><img src="logo-wordmark-light.png?v=38" alt="Awwab Fitness"></picture></div><h1>Log in</h1>
+    view.innerHTML = `<div class="login"><div class="wm"><picture><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=39"><img src="logo-wordmark-light.png?v=39" alt="Awwab Fitness"></picture></div><h1>Log in</h1>
       <form class="card" id="f" method="post" action="#"><label class="field" for="em">Email</label>
       <input id="em" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label class="field" for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required>

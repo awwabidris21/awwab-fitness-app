@@ -220,7 +220,7 @@ window.startClient = function (ctx) {
         <div class="phl"><span>${esc(p.a)}</span>${ctx.readOnly ? "" : `<button class="x" data-act="delphoto" data-d="${k}" data-p="${esc(p.p)}" aria-label="Delete photo">&times;</button>`}</div></div>`).join("")}</div></div>`).join("");
   }
 
-  const brandRow = `<div class="brandrow"><picture class="brandmark"><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=38"><img src="logo-wordmark-light.png?v=38" alt="Awwab Fitness"></picture></div>`;
+  const brandRow = `<div class="brandrow"><picture class="brandmark"><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=39"><img src="logo-wordmark-light.png?v=39" alt="Awwab Fitness"></picture></div>`;
   function header(title, sub, back) {
     const isToday = date === realToday;
     if (back) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div><button class="btn ghost" data-go="home">Back</button></div>`;
@@ -428,9 +428,24 @@ window.startClient = function (ctx) {
       <div class="bar ${done.cal >= T.calories * 0.9 && done.cal <= T.calories * 1.1 ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
       <div class="msum-cols">${col("Protein", done.p, T.protein)}${col("Carbs", done.c, T.carbs)}${col("Fat", done.f, T.fat)}</div></div>`;
   }
+  let editFood = null, editVals = {};
+  function editPreview(x) {
+    const g = parseFloat(editVals.g); if (!(g > 0)) return `<span class="muted small">Enter an amount.</span>`;
+    const r = g / x.g;
+    return `<strong>${Math.round(x.cal * r)} cal</strong> &middot; ${macroLine(x.p * r, x.c * r, x.f * r)}`;
+  }
+  function editRow(x, i) {
+    const manual = !(x.g > 0), fld = (k, label) => `<div><label class="field">${label}</label><input type="number" inputmode="decimal" data-f="em" data-k="${k}" value="${esc(editVals[k] == null ? "" : editVals[k])}"></div>`;
+    return `<div class="frow edit"><div class="frow-main" style="flex:1;min-width:0">
+      <div class="fn">${manual ? "" : esc(x.n)}</div>
+      ${manual ? `<label class="field" for="en">What was it?</label><input id="en" type="text" data-f="em" data-k="n" value="${esc(editVals.n || "")}"><div class="grid2" style="margin-top:8px">${fld("cal", "Calories")}${fld("p", "Protein (g)")}${fld("c", "Carbs (g)")}${fld("f", "Fat (g)")}</div>`
+        : `<label class="field" for="eg" style="margin-top:10px">Amount (grams)</label><input id="eg" type="number" inputmode="decimal" data-f="eg" value="${esc(editVals.g)}"><div id="eprev" class="fm" style="margin-top:8px">${editPreview(x)}</div>`}
+      <div class="btns"><button class="btn sm" data-act="fsave" data-i="${i}">Save</button><button class="btn ghost sm" data-act="fecancel">Cancel</button></div></div></div>`;
+  }
   function loggedRow(x, i, showSlot) {
+    if (editFood === i && !ctx.readOnly) return editRow(x, i);
     return `<div class="frow"><div class="frow-main"><div class="fn">${esc(x.n)}</div><div class="fm">${showSlot && x.slot ? esc(x.slot) + " &middot; " : ""}${esc(x.amt || "")}</div><div class="fm">${macroLine(x.p, x.c, x.f)}</div></div>
-      <div class="frow-r"><div class="fc">${Math.round(x.cal)}<span> cal</span></div>${ctx.readOnly ? "" : `<div class="fa"><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button><button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></div>`}</div></div>`;
+      <div class="frow-r"><div class="fc">${Math.round(x.cal)}<span> cal</span></div>${ctx.readOnly ? "" : `<div class="fa"><button class="linkbtn" data-act="fedit" data-i="${i}" aria-label="Edit ${esc(x.n)}">Edit</button><button class="linkbtn" data-act="ssave" data-i="${i}" aria-label="Save ${esc(x.n)} for later">Save</button><button class="linkbtn" data-act="fdel" data-i="${i}" aria-label="Remove ${esc(x.n)}">Remove</button></div>`}</div></div>`;
   }
   const addBtn = slot => ctx.readOnly ? "" : `<button class="addfood" data-act="fopen" data-slot="${esc(slot)}"><span>+</span> Add food</button>`;
   function slotSection(slot, items) {
@@ -766,7 +781,7 @@ window.startClient = function (ctx) {
       <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>
       <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
-    h += `<div class="brandfoot"><img src="icon-192.png?v=38" alt="" width="56" height="56"><div><strong>Awwab Fitness</strong><div class="muted small">12-week coaching &middot; Est. 2026</div></div></div>`;
+    h += `<div class="brandfoot"><img src="icon-192.png?v=39" alt="" width="56" height="56"><div><strong>Awwab Fitness</strong><div class="muted small">12-week coaching &middot; Est. 2026</div></div></div>`;
     h += `<div class="muted small" style="margin-top:18px;text-align:center"><a href="https://awwabidris21.github.io/Coaching-Policies-/terms.html" target="_blank" rel="noopener">Terms</a> &middot; <a href="https://awwabidris21.github.io/Coaching-Policies-/privacy.html" target="_blank" rel="noopener">Privacy</a></div>`;
     return h;
   }
@@ -946,7 +961,7 @@ window.startClient = function (ctx) {
     const t = e.target.closest("[data-tab],[data-act],[data-go]");
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) {
-      tab = t.dataset.tab || t.dataset.go; fs.open = false; howEx = null; render(); window.scrollTo(0, 0);
+      tab = t.dataset.tab || t.dataset.go; fs.open = false; howEx = null; editFood = null; render(); window.scrollTo(0, 0);
       if (tab === "notes") refreshMsgs().then(() => { if (tab === "notes") { render(); } markRead(); }).catch(() => {});
       return;
     }
@@ -965,8 +980,8 @@ window.startClient = function (ctx) {
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }
     const d = dayRec(date);
     switch (t.dataset.act) {
-      case "prev": { const x = toDate(date); x.setDate(x.getDate() - 1); date = iso(x); break; }
-      case "next": { const x = toDate(date); x.setDate(x.getDate() + 1); if (iso(x) <= realToday) date = iso(x); break; }
+      case "prev": { const x = toDate(date); x.setDate(x.getDate() - 1); date = iso(x); editFood = null; break; }
+      case "next": { const x = toDate(date); x.setDate(x.getDate() + 1); if (iso(x) <= realToday) date = iso(x); editFood = null; break; }
       case "meal": d.meals[+t.dataset.i] = !d.meals[+t.dataset.i]; save(); break;
       case "water": d.water = Math.max(0, (d.water || 0) + (+t.dataset.v)); save(); break;
       case "rate": { d.checkin = d.checkin || {}; const k = t.dataset.k, v = +t.dataset.v; d.checkin[k] = d.checkin[k] === v ? null : v; save(); break; }
@@ -1024,7 +1039,21 @@ window.startClient = function (ctx) {
         d.foods.push({ slot: curSlot(), n: fs.sel.n, amt: fs.amt + " " + (fs.unit.length > 22 ? fs.unit.split(" (")[0] : fs.unit), g: x.g, cal: x.cal, p: x.p, f: x.f, c: x.c });
         fs.sel = null; fs.q = ""; fs.off = []; fs.offMsg = ""; fs.amt = ""; fs.open = false; save(); break;
       }
-      case "fdel": if (d.foods) { d.foods.splice(+t.dataset.i, 1); save(); } break;
+      case "fdel": if (d.foods) { d.foods.splice(+t.dataset.i, 1); editFood = null; save(); } break;
+      case "fedit": { const x = (d.foods || [])[+t.dataset.i]; if (!x) return; editFood = +t.dataset.i; editVals = x.g > 0 ? { g: String(x.g) } : { n: x.n, cal: x.cal, p: x.p, c: x.c, f: x.f }; break; }
+      case "fecancel": editFood = null; break;
+      case "fsave": {
+        const x = (d.foods || [])[+t.dataset.i]; if (!x) return;
+        if (x.g > 0) {
+          const g = Math.round(parseFloat(editVals.g) * 10) / 10; if (!(g > 0)) return; const r = g / x.g;
+          Object.assign(x, { cal: Math.round(x.cal * r), p: r1(x.p * r), f: r1(x.f * r), c: r1(x.c * r), g, amt: g + " g" });
+        } else {
+          const v = editVals, p = +v.p || 0, c = +v.c || 0, f = +v.f || 0;
+          const cal = v.cal !== "" && v.cal != null && !isNaN(+v.cal) ? Math.round(+v.cal) : Math.round(p * 4 + c * 4 + f * 9);
+          Object.assign(x, { n: (v.n || "").trim() || x.n, cal, p: r1(p), f: r1(f), c: r1(c) });
+        }
+        editFood = null; save(); break;
+      }
       case "ciopen": checkinOpen = true; break;
       case "ciclose": checkinOpen = false; break;
       case "offplan": d.offPlan = d.offPlan || {}; d.offPlan.on = !d.offPlan.on; save(); break;
@@ -1049,6 +1078,8 @@ window.startClient = function (ctx) {
     const t = e.target;
     if (t.dataset.f === "fq") { fs.q = t.value; fs.off = []; fs.offMsg = ""; refreshFood(); }
     else if (t.dataset.f === "fm") { fs.man[t.dataset.k] = t.dataset.k === "n" ? t.value : t.value; }
+    else if (t.dataset.f === "eg") { editVals.g = t.value; const el = document.getElementById("eprev"), x = (dayRec(date).foods || [])[editFood]; if (el && x) el.innerHTML = editPreview(x); }
+    else if (t.dataset.f === "em") { editVals[t.dataset.k] = t.value; }
     else if (t.dataset.f === "famt") { fs.amt = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); }
   });
   document.addEventListener("keydown", e => {
