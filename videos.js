@@ -79,4 +79,10 @@ window.FORM_VIDEOS = {
   "Shoulder Fly Machine (side delts)": { url: "https://youtube.com/shorts/9nEat3EYPe8", cues: [] },
   "Machine Shoulder Flys": { url: "https://youtube.com/shorts/9nEat3EYPe8", cues: [] },
   "Machine Shoulder Fly": { url: "https://youtube.com/shorts/9nEat3EYPe8", cues: [] },
+  "RDLs": { url: "https://youtu.be/2B9caAqulhM", cues: [] },
+  "RDL": { url: "https://youtu.be/2B9caAqulhM", cues: [] },
+  "Romanian Deadlift": { url: "https://youtu.be/2B9caAqulhM", cues: [] },
+  "Romanian Deadlifts": { url: "https://youtu.be/2B9caAqulhM", cues: [] },
+  "Lateral Raises": { url: "https://youtube.com/shorts/9nEat3EYPe8", cues: [] },
+  "Lateral Raise": { url: "https://youtube.com/shorts/9nEat3EYPe8", cues: [] },
 };
