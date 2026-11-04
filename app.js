@@ -330,8 +330,42 @@ window.startClient = function (ctx) {
       <div class="muted small" style="margin-top:6px">Copy these from the label. If you leave calories blank, they're worked out from the macros.</div>
       <div class="btns"><button class="btn" data-act="fmadd">Add to today</button><button class="btn ghost" data-act="fmclose">Cancel</button></div></div>`;
   }
+  /* ---------- photo estimate (Supabase Edge Function "food-photo") ---------- */
+  const ph = { busy: false, msg: "", items: null, preview: "", note: "" };
+  function photoPanel() {
+    if (ctx.readOnly) return "";
+    if (ph.items) {
+      const fld = (i, k, label) => `<div><label class="field">${label}</label><input type="number" inputmode="decimal" data-f="phi" data-i="${i}" data-k="${k}" value="${esc(ph.items[i][k])}"></div>`;
+      return (ph.preview ? `<img src="${ph.preview}" alt="Your photo" style="width:100%;max-height:200px;object-fit:cover;border-radius:12px;margin-bottom:10px">` : "")
+        + `<div class="muted small" style="margin-bottom:8px">Rough estimates from your photo. Fix anything that looks off before you add it.</div>`
+        + ph.items.map((x, i) => `<div class="swappanel" style="margin:0 0 10px"><input type="text" data-f="phi" data-i="${i}" data-k="n" value="${esc(x.n)}" aria-label="Food name">
+          ${x.portion ? `<div class="muted small" style="margin:4px 0 8px">${esc(x.portion)}</div>` : ""}
+          <div class="grid2">${fld(i, "cal", "Calories")}${fld(i, "p", "Protein (g)")}${fld(i, "c", "Carbs (g)")}${fld(i, "f", "Fat (g)")}</div>
+          <button class="linkbtn" data-act="phdel" data-i="${i}">Remove</button></div>`).join("")
+        + `<div class="btns"><button class="btn" data-act="phadd">Add to ${esc(curSlot() === "Snack" ? "Snacks" : curSlot())}</button><button class="btn ghost" data-act="phreset">New photo</button></div>`;
+    }
+    return `<div class="muted small" style="margin-bottom:10px">Take a photo of your plate to get a rough estimate of the calories and macros. It's a guess, not a scale, so check it before you add it.</div>
+      <label class="field" for="phnote">Anything I can't see? (optional)</label><input id="phnote" type="text" data-f="phnote" value="${esc(ph.note)}" placeholder="e.g. cooked in 1 tbsp olive oil, 2 slices of bread">
+      <div class="btns"><label class="btn">${ph.busy ? "Reading your photo..." : "Take or choose a photo"}<input type="file" accept="image/*" data-ph-food hidden ${ph.busy ? "disabled" : ""}></label></div>
+      ${ph.msg ? `<div class="muted small" style="margin-top:8px">${esc(ph.msg)}</div>` : ""}`;
+  }
+  async function estimateFood(file) {
+    const redraw = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+    ph.busy = true; ph.msg = ""; ph.items = null; redraw();
+    try {
+      if (!ctx.sb.functions || !ctx.sb.functions.invoke) throw new Error("Photo estimates aren't available in the demo.");
+      const blob = await resizeImage(file, 1024);
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Could not read that photo.")); r.readAsDataURL(blob); });
+      ph.preview = "data:image/jpeg;base64," + b64;
+      const { data, error } = await ctx.sb.functions.invoke("food-photo", { body: { image: b64, note: ph.note } });
+      if (error) throw new Error("Couldn't reach the photo estimate. Check your connection and try again.");
+      if (!data || data.error || !Array.isArray(data.items) || !data.items.length) throw new Error((data && data.error) || "I couldn't pick out any food in that photo. Try a closer, brighter shot.");
+      ph.items = data.items.map(x => ({ n: String(x.name || "Food").slice(0, 60), portion: String(x.portion || "").slice(0, 60), cal: Math.round(+x.cal || 0), p: r1(+x.p || 0), c: r1(+x.c || 0), f: r1(+x.f || 0) }));
+    } catch (e) { ph.msg = e.message || "Something went wrong. Try again."; }
+    ph.busy = false; redraw();
+  }
   /* ---------- barcode scanner ---------- */
-  const scan = { stream: null, stop: false, reader: null, el: null };
+  const scan ={ stream: null, stop: false, reader: null, el: null };
   function closeScanner() {
     scan.stop = true;
     try { if (scan.reader) scan.reader.reset(); } catch (e) {}
@@ -473,7 +507,7 @@ window.startClient = function (ctx) {
       ${ctx.readOnly ? "" : `<button class="linkbtn" data-act="swapopen" data-i="${i}">${swapOpen[i] ? "Close" : "Swap or change this meal"}</button>`}
       ${swapOpen[i] && !ctx.readOnly ? swapPanel(m, i, d) : ""}</section>`;
   }
-  const FTABS = [["search", "Search"], ["recent", "Recent"], ["saved", "Saved"], ["manual", "By hand"]];
+  const FTABS = [["search", "Search"], ["photo", "Photo"], ["recent", "Recent"], ["saved", "Saved"], ["manual", "By hand"]];
   function sheetBody() {
     if (fs.tab === "recent") {
       const y = yesterdayFoods(), r = recentFoods(12);
@@ -482,6 +516,7 @@ window.startClient = function (ctx) {
     }
     if (fs.tab === "saved") return (saved && saved.length ? savedPanel().replace(/^<div style="[^"]*">/, "<div>").replace('<label class="field">Your saved meals</label>', "") : `<div class="muted">Tap Save on any food you've logged and it will be here for next time.</div>${savedNote ? `<div class="muted small" style="margin-top:8px">${esc(savedNote)}</div>` : ""}`);
     if (fs.tab === "manual") return manualPanel();
+    if (fs.tab === "photo") return photoPanel();
     return `<div class="srch"><input id="fq" type="text" data-f="fq" enterkeyhint="search" autocomplete="off" autocapitalize="none" placeholder="Search chicken, rice, Greek yogurt..." value="${esc(fs.q)}"><button class="btn ghost sm" data-act="fscan">Scan</button></div>
       <div id="fres">${foodResults()}</div>${foodPanel()}`;
   }
@@ -1033,6 +1068,18 @@ window.startClient = function (ctx) {
         fs.manual = false; fs.man = {}; fs.open = false; save(); break;
       }
       case "foff": searchOff(); return;
+      case "phdel": if (ph.items) { ph.items.splice(+t.dataset.i, 1); if (!ph.items.length) ph.items = null; } break;
+      case "phreset": ph.items = null; ph.msg = ""; ph.preview = ""; break;
+      case "phadd": {
+        if (!ph.items || !ph.items.length) return;
+        d.foods = d.foods || [];
+        ph.items.forEach(x => {
+          const p = +x.p || 0, c = +x.c || 0, f = +x.f || 0;
+          const cal = x.cal !== "" && x.cal != null && !isNaN(+x.cal) ? Math.round(+x.cal) : Math.round(p * 4 + c * 4 + f * 9);
+          d.foods.push({ slot: curSlot(), n: (x.n || "").trim() || "Photo estimate", amt: (x.portion ? x.portion + ", " : "") + "photo estimate", g: 0, cal, p: r1(p), f: r1(f), c: r1(c) });
+        });
+        ph.items = null; ph.msg = ""; ph.preview = ""; ph.note = ""; fs.open = false; save(); break;
+      }
       case "fadd": {
         const x = foodCalc(); if (!x) return;
         d.foods = d.foods || [];
@@ -1080,6 +1127,8 @@ window.startClient = function (ctx) {
     else if (t.dataset.f === "fm") { fs.man[t.dataset.k] = t.dataset.k === "n" ? t.value : t.value; }
     else if (t.dataset.f === "eg") { editVals.g = t.value; const el = document.getElementById("eprev"), x = (dayRec(date).foods || [])[editFood]; if (el && x) el.innerHTML = editPreview(x); }
     else if (t.dataset.f === "em") { editVals[t.dataset.k] = t.value; }
+    else if (t.dataset.f === "phnote") { ph.note = t.value; }
+    else if (t.dataset.f === "phi") { const x = ph.items && ph.items[+t.dataset.i]; if (x) x[t.dataset.k] = t.value; }
     else if (t.dataset.f === "famt") { fs.amt = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); }
   });
   document.addEventListener("keydown", e => {
@@ -1091,6 +1140,7 @@ window.startClient = function (ctx) {
     const t = e.target;
     if (t.dataset.f === "funit") { fs.unit = t.value; const el = document.getElementById("fprev"); if (el) el.innerHTML = foodPreview(); return; }
     if (ctx.readOnly) return;
+    if (t.dataset.phFood !== undefined) { const f = t.files && t.files[0]; if (f && !ph.busy) estimateFood(f); t.value = ""; return; }
     if (t.dataset.phAngle) { const f = t.files && t.files[0]; if (f) uploadPhoto(f, t.dataset.phAngle); t.value = ""; return; }
     const d = dayRec(date);
     if (t.dataset.f === "weight") { d.weight = parseFloat(t.value) || null; save(); render(); return; }
