@@ -357,7 +357,7 @@ window.startClient = function (ctx) {
       const blob = await resizeImage(file, 1024);
       const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Could not read that photo.")); r.readAsDataURL(blob); });
       ph.preview = "data:image/jpeg;base64," + b64;
-      const { data, error } = await ctx.sb.functions.invoke("food-photo", { body: { image: b64, note: ph.note } });
+      const { data, error } = await ctx.sb.functions.invoke("food-photo-",{ body: { image: b64, note: ph.note } });
       if (error) throw new Error("Couldn't reach the photo estimate. Check your connection and try again.");
       if (!data || data.error || !Array.isArray(data.items) || !data.items.length) throw new Error((data && data.error) || "I couldn't pick out any food in that photo. Try a closer, brighter shot.");
       ph.items = data.items.map(x => ({ n: String(x.name || "Food").slice(0, 60), portion: String(x.portion || "").slice(0, 60), cal: Math.round(+x.cal || 0), p: r1(+x.p || 0), c: r1(+x.c || 0), f: r1(+x.f || 0) }));
