@@ -568,6 +568,14 @@ window.startClient = function (ctx) {
     if (/iphone|ipad|ipod/i.test(navigator.userAgent)) return `<div class="card note"><div class="eyebrow">Add to your home screen</div>Tap the Share button in Safari, then <strong>Add to Home Screen</strong>. It opens full screen like a normal app and keeps you logged in.<div class="btns"><button class="btn ghost" data-act="installx">Got it</button></div></div>`;
     return "";
   }
+  function weekStrip() {
+    const ks = [];
+    for (let i = 6; i >= 0; i--) { const x = toDate(realToday); x.setDate(x.getDate() - i); ks.push(iso(x)); }
+    return `<div class="weekstrip" aria-label="Your last 7 days">` + ks.map(k => {
+      const sc = k >= C.startDate ? dayScore(k) : 0, cls = sc >= 1 ? "full" : sc > 0 ? "part" : "none";
+      return `<div class="wday ${cls} ${k === realToday ? "today" : ""}"><span class="wl">${toDate(k).toLocaleDateString(undefined, { weekday: "narrow" })}</span><span class="wc" style="--p:${Math.round(sc * 100)}">${sc >= 1 ? "&#10003;" : ""}</span></div>`;
+    }).join("") + `</div>`;
+  }
   function viewHome() {
     const d = dayRec(date);
     const done = consumed(d);
@@ -585,16 +593,27 @@ window.startClient = function (ctx) {
     const exDone = exs.filter(x => loggedSets(date, x).length).length;
     const w = d.water || 0, ciDone = checkinDone(d);
     const tick = ok => `<span class="tick">${ok ? "&#10003;" : ""}</span>`;
-    const inRow = (ok, id, label, attrs) => `<div class="trow ${ok ? "done" : ""}">${tick(ok)}<label class="tl" for="${id}">${label}</label><input class="tin" id="${id}" ${attrs}></div>`;
-    const goRow = (ok, label, detail, go) => `<button class="trow ${ok ? "done" : ""}" data-go="${go}">${tick(ok)}<span class="tl">${label}</span><span class="tv">${detail}</span><span class="chev">&rsaquo;</span></button>`;
+    const inRow = (ok, id, label, attrs) => `<div class="trow ${ok ? "done" : ""}" data-row="${id}">${tick(ok)}<label class="tl" for="${id}">${label}</label><input class="tin" id="${id}" ${attrs}></div>`;
+    const goRow = (ok, label, detail, go, key) => `<button class="trow ${ok ? "done" : ""}" data-go="${go}" data-row="${key}">${tick(ok)}<span class="tl">${label}</span><span class="tv">${detail}</span><span class="chev">&rsaquo;</span></button>`;
+    const left = t.length - nDone, hrNow = new Date().getHours(), stk = streak();
+    let msg = "";
+    if (date === realToday) {
+      if (!left) msg = "Perfect day. Everything is done.";
+      else if (!checkinDone(d) && stk > 0 && hrNow >= 17) msg = `Check in tonight to keep your ${stk}-day streak.`;
+      else msg = `${left} thing${left > 1 ? "s" : ""} left today.`;
+    }
+    h += `<div class="duo hero" ${F.streaks ? "" : 'style="grid-template-columns:1fr"'}>
+      ${F.streaks ? `<button class="card streakcard" data-go="streaks" aria-label="See your streaks"><div class="flame">${flame}</div><div class="big">${stk}</div><div class="muted small">day streak</div><div class="muted small">Best ${bestStreak()}</div></button>` : ""}
+      <div class="card ringcard">${ring(Math.round(nDone / t.length * 100), nDone + "/" + t.length, "Today")}<div class="muted small">done today</div></div></div>
+    ${weekStrip()}${msg ? `<div class="heromsg ${!left ? "good" : ""}">${esc(msg)}</div>` : ""}`;
     h += `<h2>Today <span class="h2n">${nDone} of ${t.length} done</span></h2><div class="card todo">`;
     h += inRow(!!d.weight, "weight", "Weigh-in", `type="number" inputmode="decimal" step="0.1" data-f="weight" value="${d.weight || ""}" placeholder="lbs"`);
     if (F.sleepLog !== false) h += inRow(!!d.sleepHrs, "sleep", "Sleep (hours)", `type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleep" value="${d.sleepHrs || ""}" placeholder="hrs"`);
-    h += goRow(!!(t[0] && t[0].done), C.meals.length ? "Meals" : "Food", `${Math.round(done.cal).toLocaleString()} / ${T.calories.toLocaleString()} cal`, "meals");
-    h += goRow(w >= T.water, "Water", `${w} / ${T.water} oz`, "meals");
-    h += wk === "Rest" ? `<div class="trow rest"><span class="tick"></span><span class="tl">Rest day</span><span class="tv">Recover</span></div>` : goRow(workoutDone(date, wk), esc(wk), `${exDone} of ${exs.length}`, "training");
+    h += goRow(!!(t[0] && t[0].done), C.meals.length ? "Meals" : "Food", `${Math.round(done.cal).toLocaleString()} / ${T.calories.toLocaleString()} cal`, "meals", "food");
+    h += goRow(w >= T.water, "Water", `${w} / ${T.water} oz`, "meals", "water");
+    h += wk === "Rest" ? `<div class="trow rest"><span class="tick"></span><span class="tl">Rest day</span><span class="tv">Recover</span></div>` : goRow(workoutDone(date, wk), esc(wk), `${exDone} of ${exs.length}`, "training", "workout");
     h += inRow(!!d.steps, "steps", "Steps", `type="number" inputmode="numeric" data-f="steps" value="${d.steps || ""}" placeholder="${T.steps.toLocaleString()}"`);
-    h += `<button class="trow ${ciDone ? "done" : ""}" data-act="${checkinOpen ? "ciclose" : "ciopen"}">${tick(ciDone)}<span class="tl">Check-in</span><span class="tv">${ciDone ? "Done" : "10 seconds"}</span><span class="chev">${checkinOpen ? "&#8963;" : "&rsaquo;"}</span></button>`;
+    h += `<button class="trow ${ciDone ? "done" : ""}" data-row="checkin" data-act="${checkinOpen ? "ciclose" : "ciopen"}">${tick(ciDone)}<span class="tl">Check-in</span><span class="tv">${ciDone ? "Done" : "10 seconds"}</span><span class="chev">${checkinOpen ? "&#8963;" : "&rsaquo;"}</span></button>`;
     if (checkinOpen) {
       h += `<div class="cipanel"><div class="muted small" style="margin:0 0 10px">1 is rough, 5 is great.</div>${rate(d, "n", "Nutrition")}${rate(d, "i", "Intensity")}${rate(d, "s", "Sleep")}
         ${F.hungerEnergy ? rate(d, "h", "Hunger (optional)") + rate(d, "e", "Energy (optional)") : ""}`;
@@ -605,7 +624,6 @@ window.startClient = function (ctx) {
       }
       h += `<div class="btns"><button class="btn" data-act="ciclose">Done</button></div></div>`;
     }
-    if (F.streaks) h += `<button class="todofoot" data-go="streaks"><span class="flame sm">${flame}</span>${streak()} day streak &middot; Best ${bestStreak()}<span class="chev">&rsaquo;</span></button>`;
     h += `</div>`;
 
     if (C.coachNote) h += `<div class="card note"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>`;
@@ -974,6 +992,52 @@ window.startClient = function (ctx) {
   }
 
   /* ---------- render & events ---------- */
+  /* ---------- little celebrations: pop on a finished row, confetti on a perfect day or a new best ---------- */
+  const calm = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+  const buzz = p => { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} };
+  function toast(title, sub) {
+    const el = document.createElement("div"); el.className = "toastc"; el.setAttribute("role", "status");
+    el.innerHTML = `<div class="tt">${esc(title)}</div>${sub ? `<div class="ts">${esc(sub)}</div>` : ""}`;
+    document.body.appendChild(el); setTimeout(() => el.classList.add("out"), 2600); setTimeout(() => el.remove(), 3100);
+  }
+  function confetti(n) {
+    if (calm()) return;
+    const box = document.createElement("div"); box.className = "confetti"; box.setAttribute("aria-hidden", "true");
+    const cols = ["#C9791E", "#E3963B", "#3FA66B", "#F7F5F1", "#8A8F9C"];
+    for (let i = 0; i < n; i++) {
+      const c = document.createElement("i");
+      c.style.left = (Math.random() * 100) + "%"; c.style.background = cols[i % cols.length]; c.style.animationDelay = (Math.random() * 0.3) + "s";
+      c.style.setProperty("--dx", (Math.random() * 160 - 80) + "px"); c.style.setProperty("--rot", (Math.random() * 720 - 360) + "deg"); box.appendChild(c);
+    }
+    document.body.appendChild(box); setTimeout(() => box.remove(), 2400);
+  }
+  const snaps = { home: {}, pr: {} };
+  function celebrate() {
+    if (ctx.readOnly) return;
+    try {
+      if (tab === "home") {
+        const now = {};
+        document.querySelectorAll("#view .trow[data-row]").forEach(r => { now[r.dataset.row] = r.classList.contains("done"); });
+        const prev = snaps.home[date]; snaps.home[date] = now;
+        if (!prev) return;
+        const keys = Object.keys(now), newly = keys.filter(k => now[k] && prev[k] === false);
+        newly.forEach(k => { const r = document.querySelector('#view .trow[data-row="' + k + '"]'); if (r) r.classList.add("pop"); });
+        const all = keys.length && keys.every(k => now[k]), wasAll = Object.keys(prev).length && Object.keys(prev).every(k => prev[k]);
+        const n = streak(), ms = [3, 7, 14, 21, 30, 50, 75, 100];
+        if (all && !wasAll) { confetti(48); toast("Perfect day", date === realToday && n ? n + " day streak. Keep it going." : "Everything done."); buzz([40, 60, 40]); }
+        else if (newly.includes("checkin") && date === realToday && n) { toast(n + " day streak", ms.includes(n) ? "Milestone. That's real consistency." : "Keep it going."); if (ms.includes(n)) confetti(32); buzz(30); }
+        else if (newly.length) buzz(20);
+      } else if (tab === "training") {
+        const prs = (C.workouts[workoutFor(date)] || []).filter(ex => prBadge(ex));
+        const prev = snaps.pr[date]; snaps.pr[date] = prs;
+        if (!prev) return;
+        const fresh = prs.filter(ex => !prev.includes(ex));
+        if (fresh.length) { confetti(30); toast("New best", fresh[0] + " " + topW(date, fresh[0]) + " lbs"); buzz([30, 50, 30]); }
+      }
+    } catch (e) {}
+  }
+  let enterNext = false;
+
   function render() {
     if (tab === "meals") loadSaved();
     if (tab === "nutrition") tab = "meals";
@@ -984,6 +1048,8 @@ window.startClient = function (ctx) {
     hydratePhotos().catch(() => {});
     document.body.classList.toggle("noscroll", (tab === "meals" && fs.open && !ctx.readOnly) || (tab === "training" && (!!howEx || !!histEx)));
     if (tab === "meals" && fs.open && fs.focus) { fs.focus = false; const q = document.getElementById("fq"); if (q) q.focus(); }
+    const vw = document.getElementById("view"); vw.classList.remove("rise"); if (enterNext) { enterNext = false; void vw.offsetWidth; vw.classList.add("rise"); }
+    celebrate();
   }
 
   document.addEventListener("click", e => {
@@ -992,7 +1058,7 @@ window.startClient = function (ctx) {
     const t = e.target.closest("[data-tab],[data-act],[data-go]");
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) {
-      tab = t.dataset.tab || t.dataset.go; if (t.dataset.pt) progTab = t.dataset.pt; fs.open = false; howEx = null; histEx = null; editFood = null; render(); window.scrollTo(0, 0);
+      tab = t.dataset.tab || t.dataset.go; enterNext = true; if (t.dataset.pt) progTab = t.dataset.pt; fs.open = false; howEx = null; histEx = null; editFood = null; render(); window.scrollTo(0, 0);
       if (tab === "notes") refreshMsgs().then(() => { if (tab === "notes") { render(); } markRead(); }).catch(() => {});
       return;
     }
