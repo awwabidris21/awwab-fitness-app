@@ -8,13 +8,13 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Awwab Fitness">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=45">
-<link rel="icon" type="image/png" href="icon-192.png?v=45">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=46">
+<link rel="icon" type="image/png" href="icon-192.png?v=46">
 <title>Awwab Fitness</title>
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=45">
+<link rel="stylesheet" href="styles.css?v=46">
 </head>
 <body>
 <div id="sync" role="status"></div>
@@ -29,14 +29,32 @@
   </nav>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=45"></script>
-<script src="data.js?v=45"></script>
-<script src="videos.js?v=45"></script>
-<script src="foods.js?v=45"></script>
-<script src="app.js?v=45"></script>
-<script src="review.js?v=45"></script>
-<script src="coach.js?v=45"></script>
-<script src="demo.js?v=45"></script>
-<script src="boot.js?v=45"></script>
+<script src="config.js?v=46"></script>
+<script src="data.js?v=46"></script>
+<script src="videos.js?v=46"></script>
+<script src="foods.js?v=46"></script>
+<script src="app.js?v=46"></script>
+<script src="review.js?v=46"></script>
+<script src="coach.js?v=46"></script>
+<script src="demo.js?v=46"></script>
+<script src="boot.js?v=46"></script>
+<script>
+/* Self-update: a phone can keep an old copy of this page. version.json holds the current release number (the same number as ?v= on the scripts above). */
+(function () {
+  var s = document.querySelector('script[src^="boot.js"]'), cur = s && (s.getAttribute("src").split("v=")[1] || "");
+  if (!cur) return;
+  var tried = function () { try { return sessionStorage.getItem("updTried"); } catch (e) { return null; } };
+  function check(onOpen) {
+    fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (j) {
+      var v = String(j.v || ""); if (!v || v === cur || tried() === v) return;
+      var a = document.activeElement; if (!onOpen && a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      try { sessionStorage.setItem("updTried", v); } catch (e) {}
+      var u = new URL(location.href); u.searchParams.set("_v", v); location.replace(u.toString());
+    }).catch(function () {});
+  }
+  check(true);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") check(false); });
+})();
+</script>
 </body>
 </html>
