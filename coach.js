@@ -160,7 +160,51 @@ window.startCoach = function (ctx) {
     });
     const u = unreadFrom(id).length;
     if (u) f.push(u + " new message" + (u > 1 ? "s" : ""));
+    const rv = reviewFor(id);
+    if (rv && ["propose", "ontrack", "goal", "needData", "adherence", "floor"].includes(rv.state)) f.push("Two-week macro review ready");
     return f;
+  }
+
+  /* ---------- two-week macro review (rules live in review.js) ---------- */
+  function reviewFor(id) {
+    const cfg = configs[id];
+    if (!cfg || !cfg.targets || !window.AutoReview) return null;
+    const cals = {};
+    dateList(yesterday, 14).forEach(k => { const t = dayCalories(cfg, rec(id, k).day); if (t.cal) cals[k] = t.cal; });
+    return window.AutoReview.evaluate({ cfg, today, weights: weightSeries(id), cals });
+  }
+  function reviewCard(id) {
+    const cfg = configs[id], rv = reviewFor(id);
+    if (!rv) return "";
+    const a = cfg.autoAdjust || {}, T = cfg.targets || {};
+    const stat = (l, v) => `<div class="rowline small" style="border-bottom:1px solid var(--line);padding:4px 0"><span class="muted">${esc(l)}</span><strong>${esc(v)}</strong></div>`;
+    let h = `<h2>Two-week macro review</h2><div class="card">`;
+    if (rv.state === "off" || rv.state === "wait") {
+      h += `<div class="muted small">${esc(rv.msg)}${rv.state === "wait" ? " Goal type: " + esc(rv.goal) + "." : ""}</div>`;
+    } else {
+      h += `<div class="grid2">${stat("Goal type", rv.goal)}${stat("Weigh-ins (14 days)", rv.weighIns)}`
+        + (rv.m1 != null ? stat("Weight average", rv.m0 + " to " + rv.m1 + " lb") + stat("Rate", (rv.perWeek > 0 ? "+" : "") + rv.perWeek + " lb/week (" + rv.ratePct + "%)") : "")
+        + (rv.loggedDays != null ? stat("Food logged", rv.loggedDays + " of 14 days") + stat("Calories vs target", Math.round(rv.calRatio * 100) + "%") : "") + `</div>`;
+      if (rv.state === "propose") {
+        const m = rv.macros;
+        h += `<table class="log" style="min-width:0;margin-top:10px"><thead><tr><th></th><th>Now</th><th>New</th></tr></thead><tbody>
+          <tr><td>Calories</td><td>${esc(T.calories)}</td><td><strong>${m.cal}</strong></td></tr><tr><td>Protein</td><td>${esc(T.protein)}g</td><td><strong>${m.p}g</strong></td></tr>
+          <tr><td>Carbs</td><td>${esc(T.carbs)}g</td><td><strong>${m.c}g</strong></td></tr><tr><td>Fat</td><td>${esc(T.fat)}g</td><td><strong>${m.f}g</strong></td></tr></tbody></table>
+          <div style="margin-top:10px">${esc(rv.reason)}</div>
+          ${(cfg.meals || []).length ? `<div class="muted small" style="margin-top:6px">This client has a meal plan. Approving changes the targets only, so adjust the meals after.</div>` : ""}
+          <div class="btns"><button class="btn" data-c="reviewapply">Approve and message ${esc((person(id) || {}).name || "client")}</button><button class="btn ghost" data-c="reviewcopy">Copy as a text</button><button class="btn ghost" data-c="reviewhold">No change</button></div>`;
+      } else {
+        h += `<div style="margin-top:10px">${esc(rv.msg)}</div><div class="btns"><button class="btn ghost" data-c="reviewhold">${rv.state === "ontrack" || rv.state === "goal" ? "Mark reviewed" : "Skip this cycle"}</button></div>`;
+      }
+    }
+    h += `<details style="margin-top:12px"><summary class="small muted">Review settings for this client</summary><div class="grid2" style="margin-top:8px">
+      <div><label class="field" for="rv-goal">Goal type</label><select id="rv-goal"><option value="">Auto (${esc(rv.goal)})</option>${["cut", "bulk", "recomp"].map(g => `<option value="${g}" ${a.goal === g ? "selected" : ""}>${g}</option>`).join("")}</select></div>
+      <div><label class="field" for="rv-floor">Calorie floor</label><input id="rv-floor" type="number" value="${a.floor || ""}" placeholder="1500"></div>
+      <div><label class="field" for="rv-lo">Low rate (% per week)</label><input id="rv-lo" type="number" step="0.05" value="${rv.range[0]}"></div>
+      <div><label class="field" for="rv-hi">High rate (% per week)</label><input id="rv-hi" type="number" step="0.05" value="${rv.range[1]}"></div></div>
+      <label class="small" style="display:block;margin-top:8px"><input type="checkbox" id="rv-on" ${a.enabled === false ? "" : "checked"}> Run reviews for this client</label>
+      <div class="btns"><button class="btn ghost" data-c="reviewsave">Save settings</button></div></details></div>`;
+    return h;
   }
 
   /* ---------- call sheet ---------- */
@@ -348,10 +392,18 @@ window.startCoach = function (ctx) {
     if (steps.length && avg(steps) >= 9000) wins.push(`Steps averaged ${Math.round(avg(steps)).toLocaleString()}.`);
     if (wkSched && wkDone === wkSched) wins.push("You finished every scheduled workout.");
     if (!wins.length) wins.push("You showed up and kept logging. That's the base everything else builds on.");
+    // focus rules, in priority order; the top two are used
+    const T = cfg.targets || {}, loggedP = days.map(k => dayCalories(cfg, rec(id, k).day)).filter(t => t.cal > 0 && t.p > 0);
+    const weighIns = days.filter(k => rec(id, k).day.weight).length;
     if (ci < 5) focus.push("Check in every day, even if it's a bad day. It's how I help you.");
+    if (T.protein && loggedP.length >= 3 && avg(loggedP.map(t => t.p)) < 0.9 * T.protein) focus.push(`Hit your protein every day. You averaged ${Math.round(avg(loggedP.map(t => t.p)))}g of ${T.protein}g.`);
     if (N.length && avg(N) < 4) focus.push("Hit every meal. Nutrition is where the week slipped.");
+    if (weighIns < 4) focus.push("Weigh in every morning, at least 5 days a week, so I can read your trend.");
+    if (wkSched && wkDone / wkSched < 0.75) focus.push(`Finish your sessions. You completed ${wkDone} of ${wkSched} this week.`);
     if (Sl.length && avg(Sl) < 4) focus.push("Protect your sleep. Aim for a steady bedtime.");
+    if (sleepH.length && avg(sleepH) < 7) focus.push(`Get to 7 hours of sleep. You averaged ${r1(avg(sleepH))}.`);
     if (steps.length && avg(steps) < 8000) focus.push("Get your steps up toward 10,000.");
+    if (T.water && water.length && avg(water) < 0.75 * T.water) focus.push(`Drink more water. Aim for ${T.water} oz a day.`);
     if (!focus.length) focus.push("Keep the same routine and add weight or a rep wherever you can.");
     const title = "Week " + weekNumber(cfg) + " review";
     const text = `${cfg.name || "Client"} - ${title}\n` + stats.map(s => `${s[0]}: ${s[1]}`).join("\n") + `\n\nWins: ${wins.join(" ")}\nFocus: ${focus.join(" ")}`;
@@ -498,7 +550,10 @@ window.startCoach = function (ctx) {
     h += `<h2>Weekly report</h2><div class="card"><div class="muted small" style="margin-bottom:8px">Last 7 days (through yesterday)</div>
       <div class="grid2">${wk.stats.map(s => `<div class="rowline small" style="border-bottom:1px solid var(--line);padding:4px 0"><span class="muted">${esc(s[0])}</span><strong>${esc(s[1])}</strong></div>`).join("")}</div>
       <div style="margin-top:10px"><b>Wins:</b> ${esc(wk.wins)}</div><div style="margin-top:6px"><b>Focus:</b> ${esc(wk.focus)}</div>
-      <div class="btns"><button class="btn" data-c="usereview">Use as this week's review</button><button class="btn ghost" data-c="copyreport">Copy report</button></div></div>`;
+      <div class="btns"><button class="btn" data-c="sendfocus">Send this week's focus to ${esc(isMe ? "me" : (c.name || "client"))}</button><button class="btn ghost" data-c="usereview">Edit it first</button><button class="btn ghost" data-c="copyreport">Copy report</button></div></div>`;
+
+    // two-week macro review
+    if (!isMe) h += reviewCard(selected);
 
     // macros
     const T = cfg.targets || {}, lw = lastWeight(selected);
@@ -651,6 +706,50 @@ window.startCoach = function (ctx) {
       cfg.targets = Object.assign({}, cfg.targets, { calories: m.cal, protein: m.p, carbs: m.c, fat: m.f, fatCeiling: m.fc });
       cfg.macroLog = (cfg.macroLog || []).concat({ date: today, weight: w, calories: m.cal, protein: m.p, fat: m.f, carbs: m.c });
       notice = (await upsertConfig(selected, cfg)) ? `Targets updated: ${m.cal} cal, P ${m.p} / F ${m.f} / C ${m.c}. Adjust the meals below if they don't add up.` : notice;
+      render(true); return;
+    }
+    if (a === "reviewapply" || a === "reviewcopy" || a === "reviewhold") {
+      const ev = reviewFor(selected), c = person(selected) || {};
+      if (!ev) return;
+      if (a === "reviewcopy") { if (ev.state === "propose") copy(window.AutoReview.explain(c.name, ev, configs[selected].targets || {})); return; }
+      const cfg = JSON.parse(JSON.stringify(configs[selected])), old = Object.assign({}, cfg.targets);
+      cfg.autoLog = (cfg.autoLog || []).concat({ date: today, action: a === "reviewapply" ? "applied" : "no change", state: ev.state, from: old.calories, to: a === "reviewapply" ? ev.newCal : old.calories, reason: ev.reason || ev.msg || "" });
+      if (a === "reviewapply") {
+        if (ev.state !== "propose") return;
+        const m = ev.macros;
+        cfg.targets = Object.assign({}, cfg.targets, { calories: m.cal, protein: m.p, carbs: m.c, fat: m.f, fatCeiling: m.fc });
+        cfg.macroLog = (cfg.macroLog || []).concat({ date: today, weight: ev.m1, calories: m.cal, protein: m.p, fat: m.f, carbs: m.c, auto: true, reason: ev.reason });
+      }
+      if (await upsertConfig(selected, cfg)) {
+        notice = a === "reviewapply" ? `Targets updated: ${ev.newCal} cal, P ${ev.macros.p} / F ${ev.macros.f} / C ${ev.macros.c}.` : "Review saved. The next one is in 14 days.";
+        if (a === "reviewapply") {
+          const { data, error } = await sb.from("messages").insert({ client_id: selected, sender: "coach", body: window.AutoReview.explain(c.name, ev, old) }).select("id,client_id,sender,body,created_at,read").single();
+          if (error) notice += " Couldn't post the message: " + error.message; else { (msgs[selected] = msgs[selected] || []).push(data); notice += " They'll see why in the app. Copy it as a text too if you want."; }
+        }
+      }
+      render(true); return;
+    }
+    if (a === "reviewsave") {
+      const cfg = JSON.parse(JSON.stringify(configs[selected])), ai = {};
+      if (!document.getElementById("rv-on").checked) ai.enabled = false;
+      if (val("rv-goal")) ai.goal = val("rv-goal");
+      if (val("rv-floor")) ai.floor = n("rv-floor");
+      if (val("rv-lo") !== "" && val("rv-hi") !== "") { const lo = parseFloat(val("rv-lo")), hi = parseFloat(val("rv-hi")); if (!isNaN(lo) && !isNaN(hi) && lo < hi) ai.rate = [lo, hi]; }
+      const dflt = window.AutoReview.RANGES[window.AutoReview.goalOf(Object.assign({}, cfg, { autoAdjust: { goal: ai.goal } }))];
+      if (ai.rate && dflt && ai.rate[0] === dflt[0] && ai.rate[1] === dflt[1]) delete ai.rate;
+      if (Object.keys(ai).length) cfg.autoAdjust = ai; else delete cfg.autoAdjust;
+      notice = (await upsertConfig(selected, cfg)) ? "Review settings saved." : notice; render(true); return;
+    }
+    if (a === "sendfocus") {
+      const wk = weekly(selected), cfg = JSON.parse(JSON.stringify(configs[selected]));
+      cfg.weeklyReview = { title: wk.title, wins: wk.wins, focus: wk.focus };
+      if (await upsertConfig(selected, cfg)) {
+        notice = "Saved as this week's review.";
+        if (selected !== ctx.userId) {
+          const { data, error } = await sb.from("messages").insert({ client_id: selected, sender: "coach", body: `This week's focus: ${wk.focus}` }).select("id,client_id,sender,body,created_at,read").single();
+          if (error) notice += " Couldn't post the message: " + error.message; else { (msgs[selected] = msgs[selected] || []).push(data); notice = "Sent. They'll see it in Notes and in the message thread."; }
+        }
+      }
       render(true); return;
     }
     if (a === "template") {
