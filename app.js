@@ -113,7 +113,7 @@ window.startClient = function (ctx) {
   const niceDate = k => toDate(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   /* ---------- shared pieces ---------- */
-  const DAY_TABS = ["home", "training", "nutrition", "meals"];
+  const DAY_TABS = ["home", "training", "meals"];
   let checkinOpen = false;
   let pwMsg = "", pwOk = false;
   let photoMsg = "";
@@ -221,10 +221,11 @@ window.startClient = function (ctx) {
   }
 
   const brandRow = `<div class="brandrow"><picture class="brandmark"><source media="(prefers-color-scheme: dark)" srcset="logo-wordmark-dark.png?v=39"><img src="logo-wordmark-light.png?v=39" alt="Awwab Fitness"></picture></div>`;
-  function header(title, sub, back) {
+  // back: true goes Home, or pass the tab to return to. right: optional button html for the top right.
+  function header(title, sub, back, right) {
     const isToday = date === realToday;
-    if (back) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div><button class="btn ghost" data-go="home">Back</button></div>`;
-    if (!DAY_TABS.includes(tab)) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div></div>`;
+    if (back) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div><button class="btn ghost" data-go="${typeof back === "string" ? back : "home"}">Back</button></div>`;
+    if (!DAY_TABS.includes(tab)) return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>${right || ""}</div>`;
     return brandRow + `<div class="topbar"><div><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>
       <div class="datenav"><button data-act="prev" aria-label="Previous day">&lsaquo;</button><button data-act="next" aria-label="Next day" ${isToday ? "disabled" : ""}>&rsaquo;</button></div></div>`;
   }
@@ -527,12 +528,6 @@ window.startClient = function (ctx) {
   }
   const pctOf = (v, t) => (t ? Math.max(0, Math.min(100, Math.round(v / t * 100))) : 0);
 
-  function leftLine(done) {
-    const T = C.targets;
-    const f = (lab, t, v, u) => { const x = Math.round(t - v); return x >= 0 ? x.toLocaleString() + u + " " + lab : Math.abs(x).toLocaleString() + u + " over on " + lab; };
-    return `Left today: ${f("calories", T.calories, done.cal, "")} &middot; ${f("protein", T.protein, done.p, "g")} &middot; ${f("carbs", T.carbs, done.c, "g")} &middot; ${f("fat", T.fat, done.f, "g")}`;
-  }
-
   function ring(pct, text, sub) {
     const c = 2 * Math.PI * 34;
     return `<svg class="ring" viewBox="0 0 80 80" role="img" aria-label="${esc(sub)} ${esc(text)}">
@@ -585,62 +580,51 @@ window.startClient = function (ctx) {
     let h = header(date === realToday ? `${greet}, ${first}` : toDate(date).toLocaleDateString(undefined, { weekday: "long" }), niceDate(date));
     h += installCard();
 
-    h += `<div class="duo" style="margin-top:16px">
-      ${F.streaks ? `<button class="card streakcard" data-go="streaks" aria-label="See your streaks"><div class="flame">${flame}</div><div class="big">${streak()}</div><div class="muted small">day streak</div><div class="muted small">Best ${bestStreak()}</div></button>` : ""}
-      <div class="card ringcard">${ring(Math.round(nDone / t.length * 100), nDone + "/" + t.length, "Today")}<div class="muted small">done today</div></div>
-    </div>`;
+    // one list for the whole day: type into a row to log it, tap a row to open it
+    const wk = workoutFor(date), exs = C.workouts[wk] || [];
+    const exDone = exs.filter(x => loggedSets(date, x).length).length;
+    const w = d.water || 0, ciDone = checkinDone(d);
+    const tick = ok => `<span class="tick">${ok ? "&#10003;" : ""}</span>`;
+    const inRow = (ok, id, label, attrs) => `<div class="trow ${ok ? "done" : ""}">${tick(ok)}<label class="tl" for="${id}">${label}</label><input class="tin" id="${id}" ${attrs}></div>`;
+    const goRow = (ok, label, detail, go) => `<button class="trow ${ok ? "done" : ""}" data-go="${go}">${tick(ok)}<span class="tl">${label}</span><span class="tv">${detail}</span><span class="chev">&rsaquo;</span></button>`;
+    h += `<h2>Today <span class="h2n">${nDone} of ${t.length} done</span></h2><div class="card todo">`;
+    h += inRow(!!d.weight, "weight", "Weigh-in", `type="number" inputmode="decimal" step="0.1" data-f="weight" value="${d.weight || ""}" placeholder="lbs"`);
+    if (F.sleepLog !== false) h += inRow(!!d.sleepHrs, "sleep", "Sleep (hours)", `type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleep" value="${d.sleepHrs || ""}" placeholder="hrs"`);
+    h += goRow(!!(t[0] && t[0].done), C.meals.length ? "Meals" : "Food", `${Math.round(done.cal).toLocaleString()} / ${T.calories.toLocaleString()} cal`, "meals");
+    h += goRow(w >= T.water, "Water", `${w} / ${T.water} oz`, "meals");
+    h += wk === "Rest" ? `<div class="trow rest"><span class="tick"></span><span class="tl">Rest day</span><span class="tv">Recover</span></div>` : goRow(workoutDone(date, wk), esc(wk), `${exDone} of ${exs.length}`, "training");
+    h += inRow(!!d.steps, "steps", "Steps", `type="number" inputmode="numeric" data-f="steps" value="${d.steps || ""}" placeholder="${T.steps.toLocaleString()}"`);
+    h += `<button class="trow ${ciDone ? "done" : ""}" data-act="${checkinOpen ? "ciclose" : "ciopen"}">${tick(ciDone)}<span class="tl">Check-in</span><span class="tv">${ciDone ? "Done" : "10 seconds"}</span><span class="chev">${checkinOpen ? "&#8963;" : "&rsaquo;"}</span></button>`;
+    if (checkinOpen) {
+      h += `<div class="cipanel"><div class="muted small" style="margin:0 0 10px">1 is rough, 5 is great.</div>${rate(d, "n", "Nutrition")}${rate(d, "i", "Intensity")}${rate(d, "s", "Sleep")}
+        ${F.hungerEnergy ? rate(d, "h", "Hunger (optional)") + rate(d, "e", "Energy (optional)") : ""}`;
+      if (F.offPlan) {
+        const off = d.offPlan || {};
+        h += `<div class="toggle" data-act="offplan" style="margin-top:12px"><div class="check" style="background:${off.on ? "var(--amber)" : "transparent"};border-color:${off.on ? "var(--amber)" : "var(--line)"}">${off.on ? "&#10003;" : ""}</div>I ate off plan today</div>
+          ${off.on ? `<textarea data-f="offnote" placeholder="What did you eat? Why?" style="margin-top:10px">${esc(off.note || "")}</textarea>` : ""}`;
+      }
+      h += `<div class="btns"><button class="btn" data-act="ciclose">Done</button></div></div>`;
+    }
+    if (F.streaks) h += `<button class="todofoot" data-go="streaks"><span class="flame sm">${flame}</span>${streak()} day streak &middot; Best ${bestStreak()}<span class="chev">&rsaquo;</span></button>`;
+    h += `</div>`;
+
+    if (C.coachNote) h += `<div class="card note"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>`;
 
     if (F.goalBar) {
       const lost = C.startWeight - latestWeight();
       const gp = pctOf(lost, C.startWeight - C.goalWeight);
-      h += `<button class="card" data-go="progress" style="width:100%;text-align:left;font:inherit;color:inherit">
-        <div class="rowline"><span class="eyebrow" style="margin:0">Week ${weekNum()} of ${C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now${(() => { const p = weights(); const recent = p.filter(q => toDate(q.date) > new Date(Date.now() - 7 * 864e5)); return recent.length >= 3 ? " (7-day avg " + (recent.reduce((a, q) => a + q.w, 0) / recent.length).toFixed(1) + ")" : ""; })()}</span></div>
+      h += `<button class="card" data-go="progress" data-pt="weight" style="width:100%;text-align:left;font:inherit;color:inherit">
+        <div class="rowline"><span class="eyebrow" style="margin:0">Week ${weekNum()} of ${C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now</span></div>
         <div class="bar"><i style="width:${Math.round(weekNum() / C.totalWeeks * 100)}%"></i></div>
         <div class="rowline" style="margin-top:12px"><span class="muted small">${C.startWeight} lbs start</span><span class="muted small">${lost > 0 ? lost.toFixed(1).replace(/\.0$/, "") + " lbs down" : ""}</span><span class="muted small">${C.goalWeight} lbs goal</span></div>
-        <div class="bar good"><i style="width:${gp}%"></i></div>
-        <div class="muted small" style="margin-top:10px">See your progress &rsaquo;</div></button>`;
-    }
-
-    const wk = workoutFor(date);
-    const exs = C.workouts[wk] || [];
-    const exDone = exs.filter(x => loggedSets(date, x).length).length;
-    const w = d.water || 0;
-    const tile = (go, label, value, sub, pct) => `<button class="tile2" data-go="${go}"><div class="l">${label}</div><div class="v">${value}</div><div class="s">${sub}</div><div class="bar ${pct >= 100 ? "good" : ""}"><i style="width:${pct}%"></i></div></button>`;
-    h += `<h2>Today at a glance</h2><div class="tiles2">
-      ${tile("training", "Training", wk === "Rest" ? "Rest" : esc(wk), wk === "Rest" ? "Recover today" : exDone + " of " + exs.length + " exercises", wk === "Rest" ? 100 : pctOf(exDone, exs.length))}
-      ${tile("nutrition", "Calories", done.cal.toLocaleString(), "of " + T.calories.toLocaleString(), pctOf(done.cal, T.calories))}
-      ${tile("nutrition", "Protein", Math.round(done.p) + "g", "of " + T.protein + "g", pctOf(done.p, T.protein))}
-      ${tile("nutrition", "Water", w + " oz", "of " + T.water + " oz", pctOf(w, T.water))}
-    </div>`;
-
-    h += weekCard();
-    if (C.coachNote) h += `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>`;
-
-    h += `<h2>Log your day</h2><div class="card"><div class="grid2">
-      <div><label class="field" for="weight">Weigh-in (lbs)</label><input id="weight" type="number" inputmode="decimal" step="0.1" data-f="weight" value="${d.weight || ""}" placeholder="morning"></div>
-      <div><label class="field" for="steps">Steps</label><input id="steps" type="number" inputmode="numeric" data-f="steps" value="${d.steps || ""}" placeholder="${T.steps.toLocaleString()}"></div></div>
-      ${F.sleepLog === false ? "" : `<div class="grid2" style="margin-top:10px"><div><label class="field" for="sleep">How many hours did you sleep last night?</label><input id="sleep" type="number" inputmode="decimal" step="0.25" min="0" max="24" data-f="sleep" value="${d.sleepHrs || ""}" placeholder="e.g. 7.5"></div></div>`}</div>`;
-
-    const ciDone = checkinDone(d);
-    h += `<div class="card"><div class="rowline"><h3>Daily check-in</h3><span class="chip ${ciDone ? "done" : ""}">${ciDone ? "Done" : "Not yet"}</span></div>`;
-    if (!checkinOpen) {
-      h += `<div class="muted small" style="margin:6px 0 0">Rate your nutrition, intensity and sleep. Takes 10 seconds.</div><div class="btns"><button class="btn" data-act="ciopen">${ciDone ? "Edit check-in" : "Do your check-in"}</button></div>`;
+        <div class="bar good"><i style="width:${gp}%"></i></div></button>`;
     } else {
-      h += `<div class="muted small" style="margin:6px 0 10px">1 is rough, 5 is great.</div>${rate(d, "n", "Nutrition")}${rate(d, "i", "Intensity")}${rate(d, "s", "Sleep")}
-        ${F.hungerEnergy ? rate(d, "h", "Hunger (optional)") + rate(d, "e", "Energy (optional)") : ""}`;
-      if (F.offPlan) {
-        const off = d.offPlan || {};
-        h += `<div class="toggle" data-act="offplan"><div class="check" style="background:${off.on ? "var(--amber)" : "transparent"};border-color:${off.on ? "var(--amber)" : "var(--line)"}">${off.on ? "&#10003;" : ""}</div>I ate off plan today</div>
-          ${off.on ? `<textarea data-f="offnote" placeholder="What did you eat? Why?" style="margin-top:10px">${esc(off.note || "")}</textarea>` : ""}`;
-      }
-      h += `<div class="btns"><button class="btn ghost" data-act="ciclose">Close</button></div>`;
+      h += `<button class="card linkcard" data-go="progress" data-pt="weight"><span>Your progress</span><span class="chev">&rsaquo;</span></button>`;
     }
-    h += `</div>`;
 
     if (F.photoReminder) {
       const n = ((S.days[realToday] || {}).photos || []).length;
-      h += `<button class="card" data-go="progress" style="width:100%;text-align:left;font:inherit;color:inherit"><div class="eyebrow" style="margin-bottom:4px">Progress photos</div>
-        <div>${n ? n + " added today" : "Take your front, side and back photos."}</div><div class="muted small" style="margin-top:6px">Add photos &rsaquo;</div></button>`;
+      h += `<button class="card linkcard" data-go="progress" data-pt="photos"><span><strong>Progress photos</strong><span class="muted small" style="display:block;margin-top:2px">${n ? n + " added today" : "Take your front, side and back photos."}</span></span><span class="chev">&rsaquo;</span></button>`;
     }
     return h;
   }
@@ -724,19 +708,29 @@ window.startClient = function (ctx) {
     return h;
   }
 
+  let histEx = null;
+  const hasHist = ex => Object.keys(S.lifts).some(k => loggedSets(k, ex).length);
+  const histBtn = ex => hasHist(ex) ? `<button class="howbtn" data-act="hist" data-ex="${esc(ex)}" aria-label="History for ${esc(ex)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V9M10 18V5M16 18v-7M21 18H3"/></svg>History</button>` : "";
+  function histSheet() {
+    if (!histEx) return "";
+    const ex = histEx, dates = Object.keys(S.lifts).filter(k => loggedSets(k, ex).length).sort();
+    const tops = dates.map(k => ({ date: k, w: Math.max(...loggedSets(k, ex).map(s => parseFloat(s.w) || 0)) })).filter(p => p.w > 0);
+    const rows = dates.slice(-6).reverse().map(k => `<div class="rowline small" style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="muted">${toDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span><span>${loggedSets(k, ex).map(s => `${s.w || "?"} &times; ${s.r}`).join(", ")}</span></div>`).join("");
+    return `<div class="sheet-ov"><div class="sheet-p" role="dialog" aria-label="History for ${esc(ex)}"><div class="sheet-h"><div><div class="eyebrow" style="margin:0 0 4px">History${tops.length ? " &middot; best " + Math.max(...tops.map(p => p.w)) + " lbs" : ""}</div><h3>${esc(ex)}</h3></div><button class="btn ghost sm" data-act="hclose">Done</button></div>
+      ${tops.length > 1 ? chart(tops) : ""}${rows || `<div class="muted">Nothing logged yet.</div>`}</div></div>`;
+  }
+
   function viewTraining() {
     const wk = workoutFor(date);
     let h = header(wk === "Rest" ? "Rest day" : wk, "Training - " + niceDate(date));
-    h += `<div class="muted small" style="margin:14px 0 6px">What did you train? Change it if you did a different session than scheduled.${C.rotation ? " Your suggested session follows your rotation, so a skipped day just pushes the order back." : ""}</div>
-      <div class="seg">${Object.keys(C.workouts).concat("Rest").map(t => `<button data-act="wtype" data-v="${esc(t)}" class="${t === wk ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
+    h += `<div class="seg" style="margin-top:16px">${Object.keys(C.workouts).concat("Rest").map(t => `<button data-act="wtype" data-v="${esc(t)}" class="${t === wk ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
     if (wk === "Rest") {
       h += `<div class="card">No lifting today. Hit your steps, water and meals, and get good sleep.</div>`;
     } else {
       const exs = C.workouts[wk];
       const nDone = exs.filter(x => loggedSets(date, x).length).length;
-      h += `<div class="card"><div class="rowline"><span class="big">${nDone} of ${exs.length} exercises</span></div>
-        <div class="bar ${nDone === exs.length ? "good" : ""}"><i style="width:${Math.round(nDone / exs.length * 100)}%"></i></div>
-        <div class="muted small" style="margin-top:8px">${C.sets} sets of ${C.reps}. Log the weight and the reps you hit.</div></div>`;
+      h += `<div class="trainbar"><div class="rowline"><span><strong>${nDone} of ${exs.length}</strong> exercises</span><span class="muted small">${C.sets} sets of ${C.reps}</span></div>
+        <div class="bar ${nDone === exs.length ? "good" : ""}"><i style="width:${Math.round(nDone / exs.length * 100)}%"></i></div></div>`;
       h += exs.map((ex, xi) => {
         const rec = (S.lifts[date] || {})[ex] || [];
         let rows = "";
@@ -748,38 +742,26 @@ window.startClient = function (ctx) {
             <input type="number" inputmode="numeric" placeholder="${esc(pv.r || "reps")}" data-lift="${xi}" data-set="${s}" data-fld="r" value="${v.r || ""}" aria-label="${esc(ex)} set ${s + 1} reps">`;
         }
         const last = lastSession(ex), hint = hintFor(ex);
-        return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3><span class="exr">${prBadge(ex)}${howBtn(ex)}</span></div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
+        return `<div class="card ex"><div class="rowline"><h3 style="color:var(--ink)">${esc(ex)}</h3><span class="exr">${prBadge(ex)}${howBtn(ex)}${histBtn(ex)}</span></div><div class="sets">${rows}</div>${last ? `<div class="last">${last}</div>` : ""}${hint ? `<div class="hint">${esc(hint)}</div>` : ""}</div>`;
       }).join("");
     }
-    h += liftHistory(wk);
-    h += `<h2>Weekly schedule</h2><div class="card">` + [1, 2, 3, 4, 5, 6, 0].map(i =>
-      `<div class="rowline" style="padding:5px 0;border-bottom:1px solid var(--line)"><span>${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]}</span><strong>${esc(C.schedule[i])}</strong></div>`).join("") + `</div>`;
-    return h + howSheet();
+    h += `<details class="card sched"><summary>Weekly schedule</summary>` + [1, 2, 3, 4, 5, 6, 0].map(i =>
+      `<div class="rowline" style="padding:8px 0;border-bottom:1px solid var(--line)"><span>${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i]}</span><strong>${esc(C.schedule[i])}</strong></div>`).join("") + `</details>`;
+    return h + howSheet() + histSheet();
   }
 
-  /* ---------- NUTRITION ---------- */
-  function viewNutrition() {
-    const d = dayRec(date), done = consumed(d), T = C.targets, w = d.water || 0;
-    let h = header("Nutrition", niceDate(date));
-    const mac = (label, v, t, unit) => `<div class="macro"><div class="n">${Math.round(v)}${unit}</div><div class="l">${label}</div><div class="t">of ${t}${unit}</div><div class="bar" style="margin-top:6px"><i style="width:${pctOf(v, t)}%"></i></div></div>`;
-    h += `<div class="card" style="margin-top:16px"><div class="rowline"><span class="big">${done.cal.toLocaleString()}</span><span class="muted">of ${T.calories.toLocaleString()} calories</span></div>
-      <div class="bar ${done.cal >= T.calories ? "good" : ""}"><i style="width:${pctOf(done.cal, T.calories)}%"></i></div>
-      <div class="muted small" style="margin-top:8px">${leftLine(done)}</div>
-      <div class="muted small" style="margin-top:4px">${C.meals.length ? "Check off your meals on the Meals tab and these numbers fill in." : "Log what you eat on the Food tab and these numbers fill in."}</div></div>
-      <div class="macros">${mac("Protein", done.p, T.protein, "g")}${mac("Carbs", done.c, T.carbs, "g")}${mac("Fat", done.f, T.fat, "g")}</div>`;
-    h += `<h2>Water</h2><div class="card"><div class="rowline"><span class="big">${w}<span class="muted small"> / ${T.water} oz</span></span></div>
-      <div class="bar ${w >= T.water ? "good" : ""}"><i style="width:${pctOf(w, T.water)}%"></i></div>
-      <div class="btns"><button class="btn" data-act="water" data-v="8">+ 8 oz</button><button class="btn" data-act="water" data-v="16">+ 16 oz</button><button class="btn" data-act="water" data-v="32">+ 32 oz</button><button class="btn ghost" data-act="water" data-v="-8">- 8 oz</button></div></div>`;
-    h += `<h2>How your numbers work</h2>` + (C.plan || []).filter(s => /nutrition|daily/i.test(s.h)).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
-    h += `<div class="muted small">Fat target is about ${T.fat}g. The ceiling is ${T.fatCeiling}g, and it's fine to land under it.</div>`;
-    return h;
+  function waterCard(d) {
+    const T = C.targets, w = d.water || 0;
+    return `<div class="card watercard"><div class="rowline"><div><div class="eyebrow" style="margin:0 0 6px">Water</div><span class="big">${w}</span><span class="muted"> / ${T.water} oz</span></div>
+      ${ctx.readOnly ? "" : `<div class="wbtns"><button class="btn sm" data-act="water" data-v="8">+8</button><button class="btn sm" data-act="water" data-v="16">+16</button><button class="btn sm" data-act="water" data-v="32">+32</button><button class="btn ghost sm" data-act="water" data-v="-8" aria-label="Remove 8 oz">&minus;8</button></div>`}</div>
+      <div class="bar ${w >= T.water ? "good" : ""}"><i style="width:${pctOf(w, T.water)}%"></i></div></div>`;
   }
 
   /* ---------- MEALS ---------- */
   function viewMeals() {
     const d = dayRec(date), planMode = C.meals.length > 0, list = d.foods || [];
     let h = header(planMode ? "Meals" : "Food", niceDate(date));
-    h += mealSummary(d);
+    h += mealSummary(d) + waterCard(d);
     if (planMode) {
       const n = d.meals.filter(Boolean).length;
       h += `<h2>Your plan <span class="h2n">${n} of ${C.meals.length} eaten</span></h2>` + C.meals.map((m, i) => planSection(m, i, d)).join("");
@@ -793,28 +775,36 @@ window.startClient = function (ctx) {
     return h + addSheet();
   }
 
-  /* ---------- NOTES ---------- */
+  /* ---------- COACH (the Notes tab) and SETTINGS ---------- */
   function viewNotes() {
-    const d = dayRec(date);
-    let h = header("Notes", ctx.isSelf ? "Your plan" : "From your coach");
-    if (!ctx.isSelf) h += C.coachNote ? `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>` : `<div class="card muted" style="margin-top:16px">No note from your coach today.</div>`;
+    const planCards = (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
+    if (ctx.isSelf) {
+      return header("Your plan", "Notes", false, `<button class="btn ghost sm" data-go="settings">Settings</button>`) + `<h2>How your plan works</h2>` + planCards;
+    }
+    let h = header("Coach", "From your coach", false, ctx.readOnly ? "" : `<button class="btn ghost sm" data-go="settings">Settings</button>`);
+    h += C.coachNote ? `<div class="card note" style="margin-top:16px"><div class="eyebrow">Note from your coach</div>${esc(C.coachNote)}</div>` : `<div class="card muted" style="margin-top:16px">No note from your coach today.</div>`;
     if (F.weeklyReview && C.weeklyReview) {
       const r = C.weeklyReview;
       h += `<h2>${esc(r.title)}</h2><div class="card"><h3>Wins</h3><div>${esc(r.wins)}</div><h3 style="margin-top:12px">Focus this week</h3><div>${esc(r.focus)}</div></div>`;
     }
     const fmt = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    if (!ctx.isSelf) h += `<h2>Messages</h2><div class="card"><div class="thread">${msgs.length ? msgs.map(m => `<div class="bub ${m.sender}">${esc(m.body)}<div class="bt">${m.sender === "coach" ? "Coach" : "You"} &middot; ${esc(fmt(m.created_at))}</div></div>`).join("") : `<div class="muted small">No messages yet.${ctx.readOnly ? "" : " Ask your coach anything."}</div>`}</div>
+    h += `<h2>Messages</h2><div class="card"><div class="thread">${msgs.length ? msgs.map(m => `<div class="bub ${m.sender}">${esc(m.body)}<div class="bt">${m.sender === "coach" ? "Coach" : "You"} &middot; ${esc(fmt(m.created_at))}</div></div>`).join("") : `<div class="muted small">No messages yet.${ctx.readOnly ? "" : " Ask your coach anything."}</div>`}</div>
       ${ctx.readOnly ? "" : `<label class="field" for="msgbox" style="margin-top:12px">Message your coach</label><textarea id="msgbox" placeholder="Type here. Hunger, sore, travel, questions. Your coach sees it."></textarea>
         ${msgNote ? `<div class="muted small" style="margin-top:6px">${esc(msgNote)}</div>` : ""}<div class="btns"><button class="btn" data-act="sendmsg">Send</button></div>`}</div>`;
-    h += `<h2>Plan notes</h2>` + (C.plan || []).map(s => `<div class="card"><h3>${esc(s.h)}</h3><div>${esc(s.p)}</div></div>`).join("");
+    h += `<details class="card sched"><summary>How your plan works</summary>${planCards.replace(/class="card"/g, 'class="planbit"')}</details>`;
     if (ctx.readOnly) return h + `<div class="btns" style="margin-top:20px"><button class="btn ghost" data-act="logout">Back to coach view</button></div>`;
-    h += `<h2>Account</h2><div class="card"><h3>Change password</h3>
+    return h;
+  }
+
+  function viewSettings() {
+    let h = header("Settings", "Your account", "notes");
+    h += `<div class="card" style="margin-top:16px"><h3>Change password</h3>
       <label class="field" for="pw1">New password (8 or more characters)</label><input id="pw1" type="password" autocomplete="new-password">
       <label class="field" for="pw2" style="margin-top:10px">Type it again</label><input id="pw2" type="password" autocomplete="new-password">
       ${pwMsg ? `<div class="${pwOk ? "muted" : "err"} small" style="margin-top:8px">${esc(pwMsg)}</div>` : ""}
       <div class="btns"><button class="btn" data-act="setpw">Update password</button></div></div>
-      <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>
-      <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>`;
+      <div class="card"><div class="rowline"><div><h3>Rest timer</h3><div class="muted small">Starts after you log a set so you know when to lift again.</div></div><button class="btn ${restOn() ? "" : "ghost"}" data-act="resttoggle">${restOn() ? "On" : "Off"}</button></div></div>
+      <div class="card"><h3>Your data</h3><div class="muted small">Download everything you've logged as a spreadsheet file.</div><div class="btns"><button class="btn ghost" data-act="mydata">Download my data (CSV)</button></div></div>`;
     h += `<div class="btns" style="margin-top:20px">${ctx.isSelf ? `<button class="btn" data-act="tocoach">Switch to coach view</button>` : ""}<button class="btn ghost" data-act="logout">Log out</button></div>`;
     h += `<div class="brandfoot"><img src="icon-192.png?v=39" alt="" width="56" height="56"><div><strong>Awwab Fitness</strong><div class="muted small">12-week coaching &middot; Est. 2026</div></div></div>`;
     h += `<div class="muted small" style="margin-top:18px;text-align:center"><a href="https://awwabidris21.github.io/Coaching-Policies-/terms.html" target="_blank" rel="noopener">Terms</a> &middot; <a href="https://awwabidris21.github.io/Coaching-Policies-/privacy.html" target="_blank" rel="noopener">Privacy</a></div>`;
@@ -848,6 +838,7 @@ window.startClient = function (ctx) {
       <text x="${W - 50}" y="${H - 6}">${toDate(points[points.length - 1].date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</text></svg>`;
   }
 
+  let progTab = "weight";
   function viewProgress() {
     const pts = weights();
     const first = pts.length ? pts[0].w : C.startWeight;
@@ -857,14 +848,18 @@ window.startClient = function (ctx) {
       <div class="macro"><div class="n">${first}</div><div class="l">Start</div></div>
       <div class="macro"><div class="n">${cur}</div><div class="l">Now</div></div>
       <div class="macro"><div class="n">${(first - cur).toFixed(1).replace(/\.0$/, "")}</div><div class="l">Lbs down</div></div></div>`;
+    h += weekCard();
+    h += `<div class="seg" style="margin-top:22px">${[["weight", "Weight"], ["photos", "Photos"], ["lifts", "Lifts"]].map(([k, l]) => `<button data-act="ptab" data-v="${k}" class="${progTab === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+    if (progTab === "photos") return h + photosSection();
+    if (progTab === "lifts") return h + liftHistory();
     const av = avg7(pts);
-    h += `<h2>Weight</h2><div class="card">${chart(pts, pts.length > 2 ? av : null)}${pts.length > 2 ? `<div class="legend"><span><i class="cell part"></i> Daily weigh-in</span><span><i class="cell full"></i> 7-day average${av.length ? " (" + av[av.length - 1].w + " lbs)" : ""}</span></div><div class="muted small" style="margin-top:8px">Your weight bounces day to day with water and food. The average is the number to watch.</div>` : ""}</div>`;
+    h += `<div class="card">${chart(pts, pts.length > 2 ? av : null)}${pts.length > 2 ? `<div class="legend"><span><i class="cell part"></i> Daily weigh-in</span><span><i class="cell full"></i> 7-day average${av.length ? " (" + av[av.length - 1].w + " lbs)" : ""}</span></div><div class="muted small" style="margin-top:8px">Your weight bounces day to day with water and food. The average is the number to watch.</div>` : ""}</div>`;
     const sp = Object.keys(S.days).sort().filter(k => S.days[k].sleepHrs).map(k => ({ date: k, w: S.days[k].sleepHrs }));
     if (F.sleepLog !== false && sp.length >= 2) {
       const last7 = sp.filter(x => toDate(x.date) > new Date(Date.now() - 7 * 864e5)).map(x => x.w);
       h += `<h2>Sleep</h2><div class="card">${chart(sp, null)}<div class="muted small" style="margin-top:8px">${last7.length ? "Average over the last 7 days: <strong>" + (Math.round(last7.reduce((a, b) => a + b, 0) / last7.length * 10) / 10) + " hours</strong>. " : ""}Most people feel best on 7 to 9 hours.</div></div>`;
     }
-    return h + photosSection() + liftHistory();
+    return h;
   }
 
   /* ---------- STREAKS (from Home) ---------- */
@@ -981,22 +976,23 @@ window.startClient = function (ctx) {
   /* ---------- render & events ---------- */
   function render() {
     if (tab === "meals") loadSaved();
-    const views = { home: viewHome, training: viewTraining, nutrition: viewNutrition, meals: viewMeals, notes: viewNotes, progress: viewProgress, streaks: viewStreaks };
+    if (tab === "nutrition") tab = "meals";
+    const views = { home: viewHome, training: viewTraining, meals: viewMeals, notes: viewNotes, settings: viewSettings, progress: viewProgress, streaks: viewStreaks };
     document.getElementById("view").innerHTML = views[tab]();
-    const hl = tab === "progress" || tab === "streaks" ? "home" : tab;
+    const hl = tab === "progress" || tab === "streaks" ? "home" : tab === "settings" ? "notes" : tab;
     document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === hl));
     hydratePhotos().catch(() => {});
-    document.body.classList.toggle("noscroll", (tab === "meals" && fs.open && !ctx.readOnly) || (tab === "training" && !!howEx));
+    document.body.classList.toggle("noscroll", (tab === "meals" && fs.open && !ctx.readOnly) || (tab === "training" && (!!howEx || !!histEx)));
     if (tab === "meals" && fs.open && fs.focus) { fs.focus = false; const q = document.getElementById("fq"); if (q) q.focus(); }
   }
 
   document.addEventListener("click", e => {
-    if (e.target.classList && e.target.classList.contains("sheet-ov")) { fs.open = false; fs.sel = null; fs.manual = false; howEx = null; render(); return; }
+    if (e.target.classList && e.target.classList.contains("sheet-ov")) { fs.open = false; fs.sel = null; fs.manual = false; howEx = null; histEx = null; render(); return; }
     if (e.target.closest("input, textarea, select")) return;
     const t = e.target.closest("[data-tab],[data-act],[data-go]");
     if (!t) return;
     if (t.dataset.tab || t.dataset.go) {
-      tab = t.dataset.tab || t.dataset.go; fs.open = false; howEx = null; editFood = null; render(); window.scrollTo(0, 0);
+      tab = t.dataset.tab || t.dataset.go; if (t.dataset.pt) progTab = t.dataset.pt; fs.open = false; howEx = null; histEx = null; editFood = null; render(); window.scrollTo(0, 0);
       if (tab === "notes") refreshMsgs().then(() => { if (tab === "notes") { render(); } markRead(); }).catch(() => {});
       return;
     }
@@ -1010,7 +1006,7 @@ window.startClient = function (ctx) {
     if (t.dataset.act === "installx") { try { localStorage.setItem("installHint", "1"); } catch (e) {} render(); return; }
     if (t.dataset.act === "installgo") { if (window.__bip) { window.__bip.prompt(); window.__bip = null; } render(); return; }
     if (t.dataset.act === "resttoggle") { try { localStorage.setItem("restTimer", restOn() ? "off" : "on"); } catch (e) {} if (!restOn()) restStop(); render(); return; }
-    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff", "how", "hclose"].includes(t.dataset.act)) return;
+    if (ctx.readOnly && !["prev", "next", "ciopen", "ciclose", "fpick", "fcancel", "foff", "how", "hclose", "hist", "ptab"].includes(t.dataset.act)) return;
     if (t.dataset.act === "setpw") { changePassword(); return; }
     if (t.dataset.act === "sendmsg") { sendMsg(); return; }
     const d = dayRec(date);
@@ -1023,7 +1019,9 @@ window.startClient = function (ctx) {
       case "wtype": d.workout = t.dataset.v; save(); break;
       case "liftall": e.preventDefault(); showAllLifts = !showAllLifts; break;
       case "how": howEx = t.dataset.ex; break;
-      case "hclose": howEx = null; break;
+      case "hclose": howEx = null; histEx = null; break;
+      case "hist": histEx = t.dataset.ex; break;
+      case "ptab": progTab = t.dataset.v; break;
       case "delphoto": if (confirm("Delete this photo?")) deletePhoto(t.dataset.d, t.dataset.p); return;
       case "swapopen": swapOpen[+t.dataset.i] = !swapOpen[+t.dataset.i]; break;
       case "mealopt": { const i = +t.dataset.i, v = t.dataset.v; d.mv = d.mv || {}; d.mv[i] = v === "c" ? "c" : +v; if (v === "c") d.custom = d.custom || {}; save(); break; }
@@ -1169,6 +1167,7 @@ window.startClient = function (ctx) {
   });
 
   { const mb = document.querySelector('#tabs [data-tab="meals"]'); if (mb) mb.querySelector("span").textContent = C.meals.length ? "Meals" : "Food"; }
+  { const nb = document.querySelector('#tabs [data-tab="notes"]'); if (nb) nb.querySelector("span").textContent = ctx.isSelf ? "Plan" : "Coach"; }
   function showWelcome() {
     if (ctx.readOnly || ctx.isSelf || Object.keys(S.days).length > 3) return;
     const key = "welcomed_" + ctx.userId;
@@ -1176,10 +1175,10 @@ window.startClient = function (ctx) {
     const el = document.createElement("div");
     el.className = "welcome"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Welcome");
     const steps = [
-      ["Home", "Your day at a glance. Weigh in each morning, log your steps and sleep, and do your daily check-in at night."],
-      [C.meals.length ? "Meals" : "Food", C.meals.length ? "Tap each meal when you eat it. Ate something different? Use Swap, or search any food and enter the weight." : "Search each food you eat, enter the weight, and your calories and macros add up through the day."],
+      ["Home", "Your whole day in one list. Type in your weigh-in, sleep and steps, tap a row to open it, and do your check-in at night."],
+      [C.meals.length ? "Meals" : "Food", C.meals.length ? "Tap each meal when you eat it. Ate something different? Use Swap, or search any food and enter the weight. Water is here too." : "Search each food you eat, enter the weight, and your calories and macros add up through the day. Water is here too."],
       ["Training", "Log your weight and reps for each set. The app shows what you did last time so you know what to beat."],
-      ["Notes", "Message your coach any time. Hunger, soreness, travel, questions. They see it."]
+      ["Coach", "Your coach's notes and weekly focus are here. Message them any time: hunger, soreness, travel, questions."]
     ];
     el.innerHTML = `<div class="wcard"><div class="eyebrow">Welcome</div><h2 style="margin:0 0 10px">Hi ${esc(C.name || "there")}, here's how this works</h2>
       ${steps.map((s, i) => `<div class="wstep"><b>${i + 1}</b><div><strong>${esc(s[0])}</strong><div class="muted small">${esc(s[1])}</div></div></div>`).join("")}

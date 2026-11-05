@@ -89,7 +89,7 @@ svg.chart text { fill: var(--slate); font-size: 10px; font-family: var(--body); 
 
 #tabs {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
-  display: grid; grid-template-columns: repeat(5, 1fr); background: var(--card); border-top: 1px solid var(--line);
+  display: grid; grid-template-columns: repeat(4, 1fr); background: var(--card); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }
 #tabs button { background: none; border: 0; padding: 14px 4px 12px; font: inherit; font-weight: 600; font-size: 13px; color: var(--slate); cursor: pointer; border-top: 3px solid transparent; }
@@ -386,3 +386,32 @@ body.noscroll { overflow: hidden; }
 .brief { margin-top: 18px; }
 
 .frow.edit { display: block; }
+
+/* ---------- UI simplification (v46+): one Today list, 4 tabs, details on demand ---------- */
+.card.todo { padding: 2px 18px; margin-top: 0; }
+.trow { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.trow .tick { flex: none; width: 24px; height: 24px; border: 1.5px solid var(--slate); border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; color: #fff; }
+.trow.done .tick { background: var(--good); border-color: var(--good); }
+.trow.rest { cursor: default; }
+.trow .tl { flex: 1; font-weight: 600; }
+.trow label.tl { cursor: pointer; }
+.trow .tv { color: var(--slate); font-size: 14px; font-variant-numeric: tabular-nums; }
+.trow .chev, .todofoot .chev, .linkcard .chev { color: var(--slate); font-size: 22px; line-height: 1; flex: none; }
+.trow .tin { width: 112px; min-height: 42px; padding: 8px 12px; text-align: right; }
+.cipanel { padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
+.todofoot { display: flex; align-items: center; gap: 8px; width: 100%; padding: 14px 0 12px; border: 0; background: transparent; font: inherit; font-size: 13px; color: var(--slate); cursor: pointer; text-align: left; }
+.todofoot .chev { margin-left: auto; }
+.flame.sm svg { width: 16px; height: 16px; display: block; }
+.linkcard { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; font: inherit; color: inherit; }
+.trainbar { margin: 4px 0 14px; }
+.trainbar .rowline { margin-bottom: 8px; }
+.watercard .rowline { align-items: center; }
+.watercard .big { font-size: 30px; }
+.wbtns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+details.sched summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+details.sched summary::-webkit-details-marker { display: none; }
+details.sched summary::after { content: "\203A"; font-size: 22px; color: var(--slate); transition: transform .15s; }
+details.sched[open] summary::after { transform: rotate(90deg); }
+details.sched[open] summary { margin-bottom: 8px; }
+.planbit { padding: 12px 0; border-top: 1px solid var(--line); }
+.planbit h3 { margin: 0 0 6px; }
