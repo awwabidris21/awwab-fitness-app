@@ -110,6 +110,9 @@ window.startClient = function (ctx) {
     return n;
   }
 
+  // a day "has data" once anything was logged on it; a client with no such days is on their first run
+  const dayHas = r => !!r && !!(r.weight || r.steps || r.sleepHrs || (r.foods || []).length || (r.water || 0) > 0 || r.checkin || (r.meals || []).some(Boolean));
+  const firstRun = () => !Object.keys(S.days).some(k => dayHas(S.days[k])) && !Object.keys(S.lifts).some(k => dayLifted(k));
   const niceDate = k => toDate(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   /* ---------- shared pieces ---------- */
@@ -585,7 +588,8 @@ window.startClient = function (ctx) {
     const hr = new Date().getHours();
     const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
     const first = C.name || "";
-    let h = header(date === realToday ? `${greet}, ${first}` : toDate(date).toLocaleDateString(undefined, { weekday: "long" }), niceDate(date));
+    const fr = firstRun(), pre = !!C.startDate && realToday < C.startDate;
+    let h = header(date === realToday ? (fr ? `Welcome, ${first}` : `${greet}, ${first}`) : toDate(date).toLocaleDateString(undefined, { weekday: "long" }), niceDate(date));
     h += installCard();
 
     // one list for the whole day: type into a row to log it, tap a row to open it
@@ -598,12 +602,14 @@ window.startClient = function (ctx) {
     const left = t.length - nDone, hrNow = new Date().getHours(), stk = streak();
     let msg = "";
     if (date === realToday) {
-      if (!left) msg = "Perfect day. Everything is done.";
+      if (pre && fr) msg = `Your ${C.totalWeeks} weeks start ${niceDate(C.startDate)}. Look around, and log a practice day if you like.`;
+      else if (fr) msg = "Day 1. Weigh in, then finish your check-in tonight to start your streak.";
+      else if (!left) msg = "Perfect day. Everything is done.";
       else if (!checkinDone(d) && stk > 0 && hrNow >= 17) msg = `Check in tonight to keep your ${stk}-day streak.`;
       else msg = `${left} thing${left > 1 ? "s" : ""} left today.`;
     }
     h += `<div class="duo hero" ${F.streaks ? "" : 'style="grid-template-columns:1fr"'}>
-      ${F.streaks ? `<button class="card streakcard" data-go="streaks" aria-label="See your streaks"><div class="flame">${flame}</div><div class="big">${stk}</div><div class="muted small">day streak</div><div class="muted small">Best ${bestStreak()}</div></button>` : ""}
+      ${F.streaks ? `<button class="card streakcard" data-go="streaks" aria-label="See your streaks"><div class="flame">${flame}</div><div class="big">${stk}</div><div class="muted small">day streak</div><div class="muted small">${stk ? "Best " + bestStreak() : "Check in to start"}</div></button>` : ""}
       <div class="card ringcard">${ring(Math.round(nDone / t.length * 100), nDone + "/" + t.length, "Today")}<div class="muted small">done today</div></div></div>
     ${weekStrip()}${msg ? `<div class="heromsg ${!left ? "good" : ""}">${esc(msg)}</div>` : ""}`;
     h += `<h2>Today <span class="h2n">${nDone} of ${t.length} done</span></h2><div class="card todo">`;
@@ -632,7 +638,7 @@ window.startClient = function (ctx) {
       const lost = C.startWeight - latestWeight();
       const gp = pctOf(lost, C.startWeight - C.goalWeight);
       h += `<button class="card" data-go="progress" data-pt="weight" style="width:100%;text-align:left;font:inherit;color:inherit">
-        <div class="rowline"><span class="eyebrow" style="margin:0">Week ${weekNum()} of ${C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now</span></div>
+        <div class="rowline"><span class="eyebrow" style="margin:0">${pre ? "Starts " + toDate(C.startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Week " + weekNum() + " of " + C.totalWeeks}</span><span class="muted small">${latestWeight()} lbs now</span></div>
         <div class="bar"><i style="width:${Math.round(weekNum() / C.totalWeeks * 100)}%"></i></div>
         <div class="rowline" style="margin-top:12px"><span class="muted small">${C.startWeight} lbs start</span><span class="muted small">${lost > 0 ? lost.toFixed(1).replace(/\.0$/, "") + " lbs down" : ""}</span><span class="muted small">${C.goalWeight} lbs goal</span></div>
         <div class="bar good"><i style="width:${gp}%"></i></div></button>`;
@@ -749,6 +755,7 @@ window.startClient = function (ctx) {
       const nDone = exs.filter(x => loggedSets(date, x).length).length;
       h += `<div class="trainbar"><div class="rowline"><span><strong>${nDone} of ${exs.length}</strong> exercises</span><span class="muted small">${C.sets} sets of ${C.reps}</span></div>
         <div class="bar ${nDone === exs.length ? "good" : ""}"><i style="width:${Math.round(nDone / exs.length * 100)}%"></i></div></div>`;
+      if (firstRun()) h += `<div class="tip">First session: pick a weight you can lift for 8 clean reps. The app remembers it and shows what to beat next time.</div>`;
       h += exs.map((ex, xi) => {
         const rec = (S.lifts[date] || {})[ex] || [];
         let rows = "";
@@ -780,6 +787,7 @@ window.startClient = function (ctx) {
     const d = dayRec(date), planMode = C.meals.length > 0, list = d.foods || [];
     let h = header(planMode ? "Meals" : "Food", niceDate(date));
     h += mealSummary(d) + waterCard(d);
+    if (firstRun() && !ctx.readOnly) h += `<div class="tip">${planMode ? "Tap a meal when you eat it. Ate something else? Use Swap or Add food." : "Tap Add food on a meal. Search a food, scan a barcode, or snap your plate with Photo."}</div>`;
     if (planMode) {
       const n = d.meals.filter(Boolean).length;
       h += `<h2>Your plan <span class="h2n">${n} of ${C.meals.length} eaten</span></h2>` + C.meals.map((m, i) => planSection(m, i, d)).join("");

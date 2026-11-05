@@ -13,7 +13,7 @@ window.startCoach = function (ctx) {
   const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
   const r1 = x => Math.round(x * 10) / 10;
 
-  let clients = [], configs = {}, logs = {}, msgs = {}, selected = null, notice = "", selfProfile = { id: ctx.userId, name: "Me" };
+  let ctab = "today", clients = [], configs = {}, logs = {}, msgs = {}, selected = null, notice = "", selfProfile = { id: ctx.userId, name: "Me" };
   const loadedAt = Date.now(), loadedDay = today;
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && (iso(new Date()) !== loadedDay || Date.now() - loadedAt > 30 * 60 * 1000)) location.reload();
@@ -536,29 +536,30 @@ window.startCoach = function (ctx) {
     }
 
     const A = "text-decoration:none;display:inline-flex;align-items:center";
+    const SEC = { today: "", messages: "", review: "", history: "", plan: "" };
     if (!isMe) h += `<div class="btns"><a class="btn" style="${A}" href="?preview=${encodeURIComponent(selected)}">See ${esc(c.name || "client")}'s app</a><a class="btn ghost" style="${A}" href="?results=${encodeURIComponent(selected)}">Results page</a></div>`;
-    if (!isMe) h += sheetHtml(selected, true);
-    h += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${isMe ? "my" : esc(c.name || "client") + "'s"} data (CSV)</button></div>`;
-    h += weightChartCard(selected);
+    if (!isMe) SEC.today += sheetHtml(selected, true);
+    SEC.history += `<div class="btns"><button class="btn ghost" data-c="exportcsv">Download ${isMe ? "my" : esc(c.name || "client") + "'s"} data (CSV)</button></div>`;
+    SEC.today += weightChartCard(selected);
 
     // messages
-    if (!isMe) h += `<h2>Messages</h2><div class="card">${threadHtml(selected)}<div class="chips" style="margin-top:12px">${REPLY_TEMPLATES.map((t, i) => `<button class="chipbtn" data-c="tpl" data-i="${i}">${esc(t[0])}</button>`).join("")}</div><label class="field" for="reply-box" style="margin-top:8px">Reply</label><textarea id="reply-box" placeholder="Write to ${esc(c.name || "your client")}. They see it in the app."></textarea>
+    if (!isMe) SEC.messages += `<h2>Messages</h2><div class="card">${threadHtml(selected)}<div class="chips" style="margin-top:12px">${REPLY_TEMPLATES.map((t, i) => `<button class="chipbtn" data-c="tpl" data-i="${i}">${esc(t[0])}</button>`).join("")}</div><label class="field" for="reply-box" style="margin-top:8px">Reply</label><textarea id="reply-box" placeholder="Write to ${esc(c.name || "your client")}. They see it in the app."></textarea>
       <div class="btns"><button class="btn" data-c="reply">Send</button></div></div>`;
 
     // weekly report
     const wk = weekly(selected);
-    h += `<h2>Weekly report</h2><div class="card"><div class="muted small" style="margin-bottom:8px">Last 7 days (through yesterday)</div>
+    SEC.review += `<h2>Weekly report</h2><div class="card"><div class="muted small" style="margin-bottom:8px">Last 7 days (through yesterday)</div>
       <div class="grid2">${wk.stats.map(s => `<div class="rowline small" style="border-bottom:1px solid var(--line);padding:4px 0"><span class="muted">${esc(s[0])}</span><strong>${esc(s[1])}</strong></div>`).join("")}</div>
       <div style="margin-top:10px"><b>Wins:</b> ${esc(wk.wins)}</div><div style="margin-top:6px"><b>Focus:</b> ${esc(wk.focus)}</div>
       <div class="btns"><button class="btn" data-c="sendfocus">Send this week's focus to ${esc(isMe ? "me" : (c.name || "client"))}</button><button class="btn ghost" data-c="usereview">Edit it first</button><button class="btn ghost" data-c="copyreport">Copy report</button></div></div>`;
 
     // two-week macro review
-    if (!isMe) h += reviewCard(selected);
+    if (!isMe) SEC.review += reviewCard(selected);
 
     // macros
     const T = cfg.targets || {}, lw = lastWeight(selected);
     const cut = (cfg.goalWeight || 0) < (cfg.startWeight || 0);
-    h += `<h2>Update macros from weigh-in</h2><div class="card"><div class="muted small" style="margin-bottom:8px">Protein is 0.8 g per lb, fat ceiling is 0.3 g per lb, carbs fill the rest.</div>
+    SEC.review += `<h2>Update macros from weigh-in</h2><div class="card"><div class="muted small" style="margin-bottom:8px">Protein is 0.8 g per lb, fat ceiling is 0.3 g per lb, carbs fill the rest.</div>
       <div class="grid2"><div><label class="field" for="mu-w">Current weight (lbs)</label><input id="mu-w" type="number" step="0.1" value="${lw ? lw.w : cfg.startWeight || ""}"></div>
       <div><label class="field" for="mu-cal">New calories</label><input id="mu-cal" type="number" value="${(T.calories || 0) + (cut ? -100 : 100)}"></div>
       <div><label class="field" for="mu-f">Fat (g) from the meals</label><input id="mu-f" type="number" value="${T.fat || 0}"></div></div>
@@ -575,11 +576,11 @@ window.startCoach = function (ctx) {
         <td class="${low(s.n)}">${s.n || "-"}</td><td>${s.i || "-"}</td><td class="${low(s.s)}">${s.s || "-"}</td><td class="${d.sleepHrs && d.sleepHrs < 6 ? "low" : ""}">${d.sleepHrs || "-"}</td><td>${s.h || "-"}/${s.e || "-"}</td>
         <td>${(cfg.meals || []).length ? (d.meals || []).filter(Boolean).length + "/" + cfg.meals.length : (d.foods || []).reduce((a, x) => a + (+x.cal || 0), 0) + " cal"}</td><td>${esc(ex.wk || "")}${ex.total ? " " + ex.done + "/" + ex.total : ""}</td><td>${esc(notes)}</td></tr>`;
     }).join("");
-    h += `<h2>Last 14 days</h2><div class="card"><div class="tablewrap"><table class="log"><thead><tr><th>Date</th><th>Wt</th><th>Water</th><th>Steps</th><th>Nut</th><th>Int</th><th>Slp</th><th>Hrs</th><th>Hun/En</th><th>Meals</th><th>Workout</th><th>Notes</th></tr></thead><tbody>${rows || `<tr><td colspan="11" class="muted">No logs yet.</td></tr>`}</tbody></table></div></div>`;
+    SEC.history += `<h2>Last 14 days</h2><div class="card"><div class="tablewrap"><table class="log"><thead><tr><th>Date</th><th>Wt</th><th>Water</th><th>Steps</th><th>Nut</th><th>Int</th><th>Slp</th><th>Hrs</th><th>Hun/En</th><th>Meals</th><th>Workout</th><th>Notes</th></tr></thead><tbody>${rows || `<tr><td colspan="11" class="muted">No logs yet.</td></tr>`}</tbody></table></div></div>`;
 
     // lifts
     const liftDays = Object.keys(logs[selected] || {}).filter(k => Object.keys(logs[selected][k].lifts).length).sort().reverse().slice(0, 5);
-    h += `<h2>Recent lifts</h2>` + (liftDays.map(k => {
+    SEC.history += `<h2>Recent lifts</h2>` + (liftDays.map(k => {
       const r = logs[selected][k];
       const lines = Object.keys(r.lifts).filter(ex => (r.lifts[ex] || []).some(s => s && s.r)).map(ex =>
         `<div class="rowline small" style="margin-top:5px"><span>${esc(ex)}</span><span>${r.lifts[ex].filter(s => s && s.r).map(s => esc((s.w || "?") + " x " + s.r)).join(", ")}</span></div>`).join("");
@@ -588,13 +589,13 @@ window.startCoach = function (ctx) {
 
     // progress photos
     const photoDays = Object.keys(logs[selected] || {}).filter(k => (logs[selected][k].day.photos || []).length).sort().reverse().slice(0, 8);
-    h += `<h2>Progress photos</h2>` + (photoDays.map(k => `<div class="card"><h3 style="color:var(--ink)">${short(k)}</h3><div class="photogrid">${logs[selected][k].day.photos.map(p =>
+    SEC.history += `<h2>Progress photos</h2>` + (photoDays.map(k => `<div class="card"><h3 style="color:var(--ink)">${short(k)}</h3><div class="photogrid">${logs[selected][k].day.photos.map(p =>
       `<div class="ph"><a target="_blank" rel="noopener"><img data-ph="${esc(p.p)}" alt="${esc(p.a)} photo, ${k}"></a><div class="phl"><span>${esc(p.a)}</span></div></div>`).join("")}</div></div>`).join("") || `<div class="card muted">No photos yet.</div>`);
 
     // plan editor
     const rv = cfg.weeklyReview || {};
     const num = (id, label, v) => `<div><label class="field" for="${id}">${label}</label><input id="${id}" type="number" inputmode="numeric" value="${esc(v)}"></div>`;
-    h += `<h2>Edit plan</h2><div class="card">
+    SEC.plan += `<h2>Edit plan</h2><div class="card">
       <label class="field" for="ed-name">Name</label><input id="ed-name" type="text" value="${esc(c.name)}">
       <h3 style="margin-top:18px">Program</h3>
       <div class="grid2"><div><label class="field" for="ed-start">Start date</label><input id="ed-start" type="date" value="${esc(cfg.startDate || "")}"></div>${num("ed-weeks", "Total weeks", cfg.totalWeeks)}
@@ -618,7 +619,13 @@ window.startCoach = function (ctx) {
       ${Object.keys(cfg.workouts || {}).map((name, i) => `<label class="field" for="ed-wk${i}" style="margin-top:8px">${esc(name)}</label><textarea id="ed-wk${i}">${esc((cfg.workouts[name] || []).join("\n"))}</textarea>`).join("")}
       <label class="toggle" style="margin-top:16px"><input type="checkbox" id="ed-consent" ${cfg.resultsConsent ? "checked" : ""}> Client agreed to share their results</label>
       <div class="btns"><button class="btn" data-c="save">Save changes</button></div></div>`;
-    return h;
+
+    if (isMe) return h + SEC.today + SEC.review + SEC.history + SEC.plan;
+    const unread = unreadFrom(selected).length, rv0 = reviewFor(selected);
+    const reviewReady = !!rv0 && ["propose", "ontrack", "goal", "needData", "adherence", "floor"].includes(rv0.state);
+    const tabs = [["today", "Today", ""], ["messages", "Messages", unread ? String(unread) : null], ["review", "Review", reviewReady ? "" : null], ["history", "History", null], ["plan", "Plan", null]];
+    h += `<div class="seg ctabs" role="tablist">${tabs.map(([k, l, b]) => `<button role="tab" data-c="ctab" data-v="${k}" class="${ctab === k ? "on" : ""}">${l}${b !== null && k !== "today" ? `<span class="cdot">${b}</span>` : ""}</button>`).join("")}</div>`;
+    return h + SEC[ctab];
   }
 
   const urls = {};
@@ -647,7 +654,7 @@ window.startCoach = function (ctx) {
   }
 
   async function openClient(id) {
-    selected = id; notice = ""; render();
+    selected = id; notice = ""; ctab = "today"; render();
     const { data } = await sb.from("messages").select("id,client_id,sender,body,created_at,read").eq("client_id", id).order("created_at", { ascending: true });
     if (data) { msgs[id] = data; }
     const ids = (msgs[id] || []).filter(m => m.sender === "client" && !m.read).map(m => m.id);
@@ -672,6 +679,7 @@ window.startCoach = function (ctx) {
     if (a === "tpl") { const b = document.getElementById("reply-box"); if (b) { b.value = REPLY_TEMPLATES[+t.dataset.i][1]; b.focus(); } return; }
     if (a === "exportcsv") { exportCsv(selected); return; }
     if (a === "back") { selected = null; notice = ""; render(); return; }
+    if (a === "ctab") { ctab = t.dataset.v; notice = ""; render(); return; }
     if (a === "open") { openClient(t.dataset.id); return; }
     if (a === "copysheet") {
       const b = brief(t.dataset.id), c = clients.find(x => x.id === t.dataset.id);
@@ -686,10 +694,9 @@ window.startCoach = function (ctx) {
     if (a === "copyreport") { copy(weekly(selected).text); return; }
     if (a === "usereview") {
       const wk = weekly(selected);
+      ctab = "plan"; notice = "Review drafted in the Plan section below. Change anything, then Save changes."; render();
       document.getElementById("ed-title").value = wk.title; document.getElementById("ed-wins").value = wk.wins; document.getElementById("ed-focus").value = wk.focus;
       document.getElementById("ed-title").scrollIntoView({ behavior: "smooth", block: "center" });
-      notice = "Review drafted in Edit plan below. Change anything, then Save changes.";
-      const nb = view.querySelector(".card.note"); if (nb) nb.textContent = notice; else view.insertAdjacentHTML("afterbegin", `<div class="card note">${esc(notice)}</div>`);
       return;
     }
     if (a === "reply") {

@@ -21,6 +21,12 @@
     } else {
       const c = demo.client(as);
       tabs.style.display = "";
+      const fresh = new URLSearchParams(location.search).get("fresh");
+      if (fresh) { // preview what a brand-new client sees: no logs, no messages, plan starting soon (fresh=1) or today (fresh=day1)
+        const d = new Date(); if (fresh !== "day1") d.setDate(d.getDate() + 4);
+        const k = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        c.config = Object.assign({}, c.config, { startDate: k, weightLog: [{ date: k, w: c.config.startWeight }], coachNote: "" }); c.logs = []; c.messages = [];
+      }
       startClient({ sb: demo.sb, userId: c.id, config: c.config, logs: c.logs, messages: c.messages, logout: back });
     }
   }
